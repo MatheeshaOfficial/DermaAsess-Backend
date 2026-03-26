@@ -1,0 +1,64 @@
+{
+  "name": "DermaAssess AI Backend",
+  "description": "Unified FastAPI and Telegram Bot backend for DermaAssess AI Health Hub",
+  "env": {
+    "API_ID": {
+      "description": "Telegram API ID from my.telegram.org",
+      "required": true
+    },
+    "API_HASH": {
+      "description": "Telegram API Hash from my.telegram.org",
+      "required": true
+    },
+    "BOT_TOKEN": {
+      "description": "Telegram Bot Token from @BotFather",
+      "required": true
+    },
+    "SUPABASE_URL": {
+      "description": "URL of your Supabase project (e.g., https://xxxx.supabase.co)",
+      "required": true
+    },
+    "SUPABASE_SERVICE_KEY": {
+      "description": "Supabase Service Role Key (bypasses RLS)",
+      "required": true
+    },
+    "JWT_SECRET": {
+      "description": "Secret for issuing custom JWTs to the frontend (min 32 chars)",
+      "required": true
+    },
+    "GEMINI_API_KEY": {
+      "description": "Google Gemini API Key",
+      "required": true
+    },
+    "CLOUDINARY_CLOUD_NAME": {
+      "description": "Cloudinary Cloud Name for image persistence",
+      "required": true
+    },
+    "CLOUDINARY_API_KEY": {
+      "description": "Cloudinary API Key",
+      "required": true
+    },
+    "CLOUDINARY_API_SECRET": {
+      "description": "Cloudinary API Secret",
+      "required": true
+    },
+    "RESEND_API_KEY": {
+      "description": "Resend API Key for sending transactional emails",
+      "required": true
+    },
+    "EMAIL_FROM": {
+      "description": "Email address to send from (e.g., noreply@yourdomain.com)",
+      "required": true,
+      "value": "noreply@yourdomain.com"
+    },
+    "USDA_API_KEY": {
+      "description": "USDA FoodData Central API Key (optional but recommended for nutrition)",
+      "required": false
+    },
+    "ALLOWED_ORIGINS": {
+      "description": "Comma-separated list of allowed CORS origins",
+      "required": true,
+      "value": "http://localhost:3000,https://your-app.vercel.app"
+    }
+  }
+}
