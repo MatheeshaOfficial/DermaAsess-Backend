@@ -7,12 +7,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from database import supabase_client
-from config import BOT_TOKEN
+from config import BOT_TOKEN, GOOGLE_CLIENT_ID
 from deps import create_jwt, get_current_user
 
 router = APIRouter()
 BOT_TOKEN = BOT_TOKEN
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_ID = GOOGLE_CLIENT_ID
 
 class TelegramAuthData(BaseModel):
     id: int
@@ -198,6 +198,8 @@ async def google_login(data: GoogleAuthData):
     except HTTPException:
         raise
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/link-telegram")
