@@ -1,3 +1,9 @@
+
+start.py
+bot/handlers
+
+
+
 import os
 from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -5,8 +11,6 @@ from bot.client import bot
 from database import supabase_client
 from fastapi import HTTPException
 from routers.auth import telegram_complete, TelegramCompleteData
-
-
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
     try:
@@ -26,7 +30,10 @@ async def start_handler(client, message):
                 # If this doesn't raise an exception, the login was successful!
                 await telegram_complete(data)
                 
-                frontend_url = os.getenv("FRONTEND_URL", "https://dermaassess.vercel.app")
+                frontend_url = os.getenv("FRONTEND_URL", "https://dermaassess.vercel.app").strip()
+                if not frontend_url.startswith("http"):
+                    frontend_url = f"https://{frontend_url}"
+                    
                 keyboard = InlineKeyboardMarkup([
                     [InlineKeyboardButton("Open DermaAssess", url=frontend_url)]
                 ])
@@ -45,7 +52,6 @@ async def start_handler(client, message):
                 await message.reply_text("❌ Error processing login. Please go back to the website and try again.")
             
             return
-
         telegram_id = message.from_user.id
         
         response = supabase_client.table("bot_users").select("*").eq("telegram_id", telegram_id).execute()
@@ -96,7 +102,6 @@ async def start_handler(client, message):
                 
                 await message.reply_text("We need to rebuild your profile database connection. *How old are you?* (type a number)")
                 return
-
             if bot_user.get("onboarded"):
                 await message.reply_text(
                     f"Welcome back, {bot_user.get('first_name')}! 👋\n\n"
@@ -113,7 +118,6 @@ async def start_handler(client, message):
     except Exception as e:
         print(f"Start error: {e}")
         await message.reply_text("Sorry, something went wrong. Please try again or send /start")
-
 @bot.on_message(filters.command("help") & filters.private)
 async def help_handler(client, message):
     try:
