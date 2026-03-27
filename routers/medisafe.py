@@ -31,7 +31,8 @@ async def scan_prescription(
         db_data = {
             "user_id": user_id,
             "image_url": image_url,
-            "medicines": medicines,
+            "medicines_found": medicines,
+            "medicines_count": len(medicines),
             "overall_safety": safety_result.get("overall_safety", "caution"),
             "safety_advice": safety_result.get("advice", ""),
             "interactions": safety_result.get("interactions", []),
