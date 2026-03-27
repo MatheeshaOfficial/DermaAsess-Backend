@@ -15,3 +15,15 @@ CREATE INDEX IF NOT EXISTS idx_profiles_email
 
 CREATE INDEX IF NOT EXISTS idx_profiles_telegram_id
   ON public.profiles (telegram_id);
+
+CREATE TABLE IF NOT EXISTS public.telegram_login_sessions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    session_token text UNIQUE NOT NULL,
+    telegram_id bigint,
+    first_name text,
+    username text,
+    profile_id uuid REFERENCES public.profiles(id),
+    jwt_token text,
+    status text DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
+    created_at timestamp with time zone DEFAULT now()
+);

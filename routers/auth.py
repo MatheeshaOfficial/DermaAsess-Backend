@@ -1,46 +1,26 @@
 import time
-import hashlib
-import hmac
 import os
+import secrets
 import httpx
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from database import supabase_client
-from config import BOT_TOKEN, GOOGLE_CLIENT_ID
+from config import GOOGLE_CLIENT_ID, BOT_USERNAME
 from deps import create_jwt, get_current_user
 
 router = APIRouter()
 
 
-class TelegramAuthData(BaseModel):
-    id: int
+class TelegramCompleteData(BaseModel):
+    session_token: str
+    telegram_id: int
     first_name: str
-    last_name: Optional[str] = None
     username: Optional[str] = None
-    photo_url: Optional[str] = None
-    auth_date: int
-    hash: str
 
 
 class GoogleAuthData(BaseModel):
     credential: str
-
-
-def verify_telegram_hash(data_dict: dict, received_hash: str):
-    """Verify Telegram Login Widget HMAC-SHA256 signature."""
-    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    sorted_items = sorted(data_dict.items(), key=lambda x: x[0])
-    check_string = "\n".join(
-        f"{k}={v}" for k, v in sorted_items if v is not None
-    )
-    expected_hash = hmac.new(
-        secret_key, check_string.encode(), hashlib.sha256
-    ).hexdigest()
-    if not hmac.compare_digest(expected_hash, received_hash):
-        raise HTTPException(
-            status_code=401, detail="Invalid Telegram authentication data"
-        )
 
 
 def determine_login_method(has_telegram: bool, has_email: bool):
@@ -53,21 +33,45 @@ def determine_login_method(has_telegram: bool, has_email: bool):
         return "google", "email"
 
 
-@router.post("/telegram-login")
-async def telegram_login(data: TelegramAuthData):
-    # ── Verify signature ──────────────────────────────────────
-    data_dict = data.model_dump()
-    received_hash = data_dict.pop("hash")
-    verify_telegram_hash(data_dict, received_hash)
-
-    if abs(time.time() - data.auth_date) > 86400:
-        raise HTTPException(status_code=401, detail="Authentication data expired")
-
+@router.post("/telegram-start")
+async def telegram_start():
     try:
+        session_token = secrets.token_urlsafe(32)
+        supabase_client.table("telegram_login_sessions").insert({
+            "session_token": session_token
+        }).execute()
+        
+        bot_link = f"https://t.me/{BOT_USERNAME}?start=login_{session_token}"
+        
+        return {
+            "success": True,
+            "session_token": session_token,
+            "bot_link": bot_link
+        }
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/telegram-complete")
+async def telegram_complete(data: TelegramCompleteData):
+    try:
+        # ── Verify session ─────────────────────────────────────────
+        session_resp = supabase_client.table("telegram_login_sessions") \
+            .select("*") \
+            .eq("session_token", data.session_token) \
+            .eq("status", "pending") \
+            .execute()
+            
+        if not session_resp.data:
+            raise HTTPException(status_code=400, detail="Invalid or expired session")
+            
+        session_id = session_resp.data[0]["id"]
+        
         # ── Find or create user ───────────────────────────────
         bot_resp = supabase_client.table("bot_users") \
             .select("profile_id") \
-            .eq("telegram_id", data.id) \
+            .eq("telegram_id", data.telegram_id) \
             .execute()
 
         is_new_user = False
@@ -77,14 +81,9 @@ async def telegram_login(data: TelegramAuthData):
             profile_id = bot_resp.data[0]["profile_id"]
         else:
             is_new_user = True
-            # Build full_name from first + last
-            full_name = data.first_name
-            if data.last_name:
-                full_name = f"{data.first_name} {data.last_name}"
-
             prof_resp = supabase_client.table("profiles").insert({
-                "full_name": full_name,
-                "telegram_id": data.id,
+                "full_name": data.first_name,
+                "telegram_id": data.telegram_id,
                 "telegram_username": data.username,
                 "notification_channel": "telegram",
                 "login_method": "telegram"
@@ -93,7 +92,7 @@ async def telegram_login(data: TelegramAuthData):
 
             if not bot_resp.data:
                 supabase_client.table("bot_users").insert({
-                    "telegram_id": data.id,
+                    "telegram_id": data.telegram_id,
                     "first_name": data.first_name,
                     "telegram_username": data.username,
                     "profile_id": profile_id,
@@ -103,7 +102,7 @@ async def telegram_login(data: TelegramAuthData):
             else:
                 supabase_client.table("bot_users") \
                     .update({"profile_id": profile_id}) \
-                    .eq("telegram_id", data.id) \
+                    .eq("telegram_id", data.telegram_id) \
                     .execute()
 
         # ── Get full profile ──────────────────────────────────
@@ -136,20 +135,54 @@ async def telegram_login(data: TelegramAuthData):
             profile.get("email"),
             login_method
         )
+        
+        # ── Mark session completed ────────────────────────────
+        supabase_client.table("telegram_login_sessions") \
+            .update({
+                "status": "completed",
+                "jwt_token": jwt_token,
+                "telegram_id": data.telegram_id,
+                "first_name": data.first_name,
+                "username": data.username,
+                "profile_id": profile_id
+            }) \
+            .eq("id", session_id) \
+            .execute()
 
-        return {
-            "access_token": jwt_token,
-            "token_type": "bearer",
-            "user_id": profile_id,
-            "first_name": data.first_name,
-            "email": profile.get("email"),
-            "telegram_id": data.id,
-            "login_method": login_method,
-            "is_new_user": is_new_user,
-            "profile_complete": profile.get("age") is not None,
-            "notification_channel": notification_channel
-        }
+        return {"success": True}
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/telegram-status/{session_token}")
+async def telegram_status(session_token: str):
+    try:
+        session_resp = supabase_client.table("telegram_login_sessions") \
+            .select("*") \
+            .eq("session_token", session_token) \
+            .execute()
+            
+        if not session_resp.data:
+            raise HTTPException(status_code=404, detail="Session not found")
+            
+        session_data = session_resp.data[0]
+        
+        if session_data["status"] == "pending":
+            return {"success": True, "status": "pending"}
+        elif session_data["status"] == "completed":
+            return {
+                "success": True,
+                "status": "completed",
+                "access_token": session_data["jwt_token"],
+                "token_type": "bearer"
+            }
+        else:
+            raise HTTPException(status_code=400, detail=f"Session state {session_data['status']}")
+            
     except HTTPException:
         raise
     except Exception as e:
@@ -243,75 +276,6 @@ async def google_login(data: GoogleAuthData):
             "is_new_user": is_new_user,
             "profile_complete": profile.get("age") is not None,
             "notification_channel": notification_channel
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/link-telegram")
-async def link_telegram(
-    data: TelegramAuthData,
-    current_user: dict = Depends(get_current_user)
-):
-    # ── Verify signature ──────────────────────────────────────
-    data_dict = data.model_dump()
-    received_hash = data_dict.pop("hash")
-    verify_telegram_hash(data_dict, received_hash)
-
-    if abs(time.time() - data.auth_date) > 86400:
-        raise HTTPException(status_code=401, detail="Authentication data expired")
-
-    try:
-        user_id = current_user["user_id"]
-
-        # ── Check for duplicate ───────────────────────────────
-        dup_check = supabase_client.table("profiles") \
-            .select("id") \
-            .eq("telegram_id", data.id) \
-            .neq("id", user_id) \
-            .execute()
-        if dup_check.data:
-            raise HTTPException(
-                status_code=400,
-                detail="This Telegram account is already linked to another DermaAssess account"
-            )
-
-        # ── Upsert bot_users ──────────────────────────────────
-        bot_check = supabase_client.table("bot_users") \
-            .select("*") \
-            .eq("telegram_id", data.id) \
-            .execute()
-        if not bot_check.data:
-            supabase_client.table("bot_users").insert({
-                "telegram_id": data.id,
-                "first_name": data.first_name,
-                "telegram_username": data.username,
-                "profile_id": user_id,
-                "onboarded": True,
-                "current_state": "idle"
-            }).execute()
-        else:
-            supabase_client.table("bot_users") \
-                .update({"profile_id": user_id, "onboarded": True}) \
-                .eq("telegram_id", data.id) \
-                .execute()
-
-        # ── Update profile ────────────────────────────────────
-        supabase_client.table("profiles").update({
-            "telegram_id": data.id,
-            "telegram_username": data.username,
-            "notification_channel": "telegram",
-            "login_method": "both"
-        }).eq("id", user_id).execute()
-
-        return {
-            "success": True,
-            "message": "Telegram linked successfully",
-            "notification_channel": "telegram"
         }
 
     except HTTPException:

@@ -11,6 +11,7 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
 API_ID = os.getenv("API_ID", "0")
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_USERNAME = os.getenv("BOT_USERNAME", "")
 
 # APIs
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
