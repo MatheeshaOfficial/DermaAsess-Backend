@@ -92,5 +92,7 @@ _Always consult a qualified doctor._
             await message.reply_text("🚨 *URGENT:* This appears serious. Please seek immediate medical attention.", parse_mode=ParseMode.MARKDOWN)
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"Skin photo error: {e}")
         await message.reply_text("Sorry, something went wrong. Please try again or send /start")
