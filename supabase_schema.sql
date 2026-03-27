@@ -7,7 +7,7 @@ ALTER TABLE public.profiles
     DEFAULT 'email'
     CHECK (notification_channel IN ('telegram','email','both')),
   ADD COLUMN IF NOT EXISTS login_method text
-    DEFAULT 'email'
+    DEFAULT 'telegram'
     CHECK (login_method IN ('telegram','google','both'));
 
 CREATE INDEX IF NOT EXISTS idx_profiles_email
