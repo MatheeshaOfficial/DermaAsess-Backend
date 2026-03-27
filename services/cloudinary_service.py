@@ -12,8 +12,11 @@ cloudinary.config(
 def upload_image(image_bytes: bytes, folder: str = "dermaassess") -> str:
     """Uploads an image to Cloudinary and returns the secure URL."""
     try:
+        import io
+        file_obj = io.BytesIO(image_bytes)
+        file_obj.name = "upload.jpg"
         result = cloudinary.uploader.upload(
-            image_bytes,
+            file_obj,
             folder=folder,
             resource_type="image"
         )
