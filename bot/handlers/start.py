@@ -1,4 +1,7 @@
+import os
+import httpx
 from pyrogram import filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bot.client import bot
 from database import supabase_client
 
@@ -6,6 +9,45 @@ from database import supabase_client
 @bot.on_message(filters.command("start") & filters.private)
 async def start_handler(client, message):
     try:
+        # ── Check for deep-link login ──
+        if len(message.command) > 1 and message.command[1].startswith("login_"):
+            session_token = message.command[1].replace("login_", "", 1)
+            
+            # The bot can just call the self-hosted backend.
+            backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+            api_endpoint = f"{backend_url.rstrip('/')}/api/auth/telegram-complete"
+            
+            try:
+                async with httpx.AsyncClient() as http_client:
+                    resp = await http_client.post(
+                        api_endpoint,
+                        json={
+                            "session_token": session_token,
+                            "telegram_id": message.from_user.id,
+                            "first_name": message.from_user.first_name,
+                            "username": message.from_user.username
+                        },
+                        timeout=10.0
+                    )
+                
+                if resp.status_code == 200 and resp.json().get("success"):
+                    frontend_url = os.getenv("FRONTEND_URL", "https://dermaassess.vercel.app")
+                    keyboard = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("Open DermaAssess", url=frontend_url)]
+                    ])
+                    await message.reply_text(
+                        "✅ Login successful! Return to DermaAssess website. It will log you in automatically in a few seconds.",
+                        reply_markup=keyboard
+                    )
+                else:
+                    print(f"Backend login failed: {resp.status_code} - {resp.text}")
+                    await message.reply_text("❌ Login session invalid or expired. Please go back to the website and try again.")
+            except Exception as req_err:
+                print(f"Error calling backend login endpoint: {req_err}")
+                await message.reply_text("❌ Login session invalid or expired. Please go back to the website and try again.")
+            
+            return
+
         telegram_id = message.from_user.id
         
         response = supabase_client.table("bot_users").select("*").eq("telegram_id", telegram_id).execute()
