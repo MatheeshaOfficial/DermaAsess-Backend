@@ -4,6 +4,7 @@ from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bot.client import bot
 from database import supabase_client
+from config import BACKEND_URL, FRONTEND_URL
 
 
 @bot.on_message(filters.command("start") & filters.private)
@@ -14,7 +15,7 @@ async def start_handler(client, message):
             session_token = message.command[1].replace("login_", "", 1)
             
             # The bot can just call the self-hosted backend.
-            backend_url = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+            backend_url = BACKEND_URL
             api_endpoint = f"{backend_url.rstrip('/')}/api/auth/telegram-complete"
             
             try:
@@ -31,7 +32,7 @@ async def start_handler(client, message):
                     )
                 
                 if resp.status_code == 200 and resp.json().get("success"):
-                    frontend_url = os.getenv("FRONTEND_URL", "https://dermaassess.vercel.app")
+                    frontend_url = FRONTEND_URL
                     keyboard = InlineKeyboardMarkup([
                         [InlineKeyboardButton("Open DermaAssess", url=frontend_url)]
                     ])
