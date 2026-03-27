@@ -1,14 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from deps import get_current_user
-import supabase
-import os
+from database import supabase_client
 from services.gemini_service import analyze_meal
 from services.cloudinary_service import upload_image
 from services.notification_service import notify_user
 
 router = APIRouter()
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 @router.post("/log")
 async def log_weight(

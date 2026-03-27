@@ -1,23 +1,17 @@
-import os
 import hashlib
 import hmac
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-import supabase
-from dotenv import load_dotenv
+from database import supabase_client
+from config import BOT_TOKEN
 from deps import create_jwt, get_current_user
 
-load_dotenv()
 
 router = APIRouter()
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = BOT_TOKEN
 
-supabase_client = supabase.create_client(
-    os.getenv("SUPABASE_URL", ""),
-    os.getenv("SUPABASE_SERVICE_KEY", "")
-)
 
 class TelegramAuthData(BaseModel):
     id: int

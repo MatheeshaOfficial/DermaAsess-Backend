@@ -1,15 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
 from deps import get_current_user
-import supabase
-import os
+from database import supabase_client
 from pydantic import BaseModel
 
 router = APIRouter()
 
-supabase_client = supabase.create_client(
-    os.getenv("SUPABASE_URL", ""),
-    os.getenv("SUPABASE_SERVICE_KEY", "")
-)
 
 class ProfileUpdate(BaseModel):
     email: str = None

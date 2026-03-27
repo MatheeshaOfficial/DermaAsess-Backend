@@ -3,16 +3,18 @@ import asyncio
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
-import os
 import re
-from dotenv import load_dotenv
-load_dotenv()
+from config import EMAIL_FROM_NAME, GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+
+
 # We use .get() so it doesn't crash on startup if not set yet
-GMAIL_ADDRESS      = os.environ.get("GMAIL_ADDRESS")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
-EMAIL_FROM_NAME    = os.environ.get("EMAIL_FROM_NAME", "DermaAssess AI")
+GMAIL_ADDRESS      = GMAIL_ADDRESS
+GMAIL_APP_PASSWORD = GMAIL_APP_PASSWORD
+EMAIL_FROM_NAME    = EMAIL_FROM_NAME
+
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = 587    # use TLS port 587, NOT SSL port 465
+
 def _send_email_sync(to: str, subject: str, html_body: str):
     """
     Synchronous SMTP send — runs in a thread via asyncio.
@@ -21,15 +23,19 @@ def _send_email_sync(to: str, subject: str, html_body: str):
     if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD:
         print("ERROR: Gmail credentials missing. Cannot send email.")
         return
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = formataddr((EMAIL_FROM_NAME, GMAIL_ADDRESS))
     msg["To"]      = to
+
     # Plain text fallback (strip HTML tags simply)
     plain_text = html_body.replace("<br>", "\n").replace("</p>", "\n")
     plain_text = re.sub(r"<[^>]+>", "", plain_text)
+
     msg.attach(MIMEText(plain_text, "plain"))
     msg.attach(MIMEText(html_body, "html"))
+
     with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
         server.ehlo()
         server.starttls()          # upgrades to encrypted connection
@@ -40,6 +46,7 @@ def _send_email_sync(to: str, subject: str, html_body: str):
             to_addrs=[to],
             msg=msg.as_string()
         )
+
 async def send_email(to: str, subject: str, html_body: str) -> bool:
     """
     Async wrapper — runs the blocking SMTP call in a thread pool
@@ -66,12 +73,15 @@ async def send_email(to: str, subject: str, html_body: str) -> bool:
     except Exception as e:
         print(f"ERROR: Failed to send email to {to}: {e}")
         return False
+
+
 def skin_email_html(data: dict) -> str:
     action_color = {
         "self-care": "#22c55e",
         "clinic":    "#f59e0b",
         "emergency": "#ef4444"
     }.get(data.get("recommended_action", "clinic"), "#f59e0b")
+
     return f"""
     <html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
       <div style="background:#0ea5e9;padding:20px;border-radius:12px 12px 0 0">
@@ -117,12 +127,15 @@ def skin_email_html(data: dict) -> str:
       </div>
     </body></html>
     """
+
+
 def prescription_email_html(data: dict) -> str:
     safety_color = {
         "safe":      "#22c55e",
         "caution":   "#f59e0b",
         "dangerous": "#ef4444"
     }.get(data.get("overall_safety","caution"), "#f59e0b")
+
     alerts_html = ""
     if data.get("allergy_alerts"):
         items = "".join(f"<li style='color:#ef4444'>{a}</li>"
@@ -132,6 +145,7 @@ def prescription_email_html(data: dict) -> str:
           <h3 style="margin:0 0 8px;color:#ef4444">Allergy Alerts</h3>
           <ul style="margin:0;padding-left:20px">{items}</ul>
         </div>"""
+
     interactions_html = ""
     if data.get("interactions"):
         items = "".join(f"<li style='color:#92400e'>{i}</li>"
@@ -141,6 +155,7 @@ def prescription_email_html(data: dict) -> str:
           <h3 style="margin:0 0 8px;color:#d97706">Drug Interactions</h3>
           <ul style="margin:0;padding-left:20px">{items}</ul>
         </div>"""
+
     return f"""
     <html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
       <div style="background:#7c3aed;padding:20px;border-radius:12px 12px 0 0">
@@ -167,6 +182,7 @@ def prescription_email_html(data: dict) -> str:
       </div>
     </body></html>
     """
+
 def weight_email_html(data: dict) -> str:
     meal_html = ""
     if data.get("meal_description"):
@@ -177,6 +193,7 @@ def weight_email_html(data: dict) -> str:
             {data["meal_description"]}
           </td>
         </tr>"""
+
     calories_html = ""
     if data.get("calories"):
         calories_html = f"""
@@ -186,6 +203,7 @@ def weight_email_html(data: dict) -> str:
             {data["calories"]} kcal
           </td>
         </tr>"""
+
     return f"""
     <html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
       <div style="background:#f59e0b;padding:20px;border-radius:12px 12px 0 0">

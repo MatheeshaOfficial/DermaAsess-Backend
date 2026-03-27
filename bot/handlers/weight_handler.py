@@ -1,14 +1,13 @@
 from pyrogram import filters
 from bot.client import bot
 from pyrogram.enums import ParseMode
-import supabase
+from database import supabase_client
 import os
 from services.gemini_service import analyze_meal
 from services.nutrition_service import lookup_nutrition
 from services.notification_service import notify_user
 from services.cloudinary_service import upload_image
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 @bot.on_message(filters.command("weight") & filters.private)
 async def weight_command_handler(client, message):

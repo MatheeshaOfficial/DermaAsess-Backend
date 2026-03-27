@@ -1,12 +1,10 @@
 from pyrogram import filters
 from bot.client import bot
 from pyrogram.enums import ParseMode
-import supabase
-import os
+from database import supabase_client
 from services.gemini_service import analyze_skin_image
 from services.cloudinary_service import upload_image
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 @bot.on_message(filters.photo & filters.private)
 async def photo_handler(client, message):

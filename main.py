@@ -1,11 +1,9 @@
-import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
+from config import ALLOWED_ORIGINS
 
-load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -17,7 +15,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="DermaAssess API", lifespan=lifespan)
 
-origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,https://your-app.vercel.app").split(",")
+origins = ALLOWED_ORIGINS.split(",")
 
 app.add_middleware(
     CORSMiddleware,

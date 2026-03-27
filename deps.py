@@ -1,12 +1,10 @@
-import os
 import jwt
 from datetime import datetime, timedelta
 from fastapi import Header, HTTPException, status
-from dotenv import load_dotenv
+from config import JWT_SECRET
 
-load_dotenv()
 
-JWT_SECRET = os.getenv("JWT_SECRET", "your-jwt-secret-min-32-chars-long")
+JWT_SECRET = JWT_SECRET
 
 def create_jwt(user_id: str, telegram_id: int) -> str:
     payload = {
