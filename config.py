@@ -29,3 +29,7 @@ EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "DermaAssess AI")
 JWT_SECRET = os.getenv("JWT_SECRET", "your-jwt-secret-min-32-chars-long")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,https://your-app.vercel.app")
+
+#URL
+FRONTEND_URL = ALLOWED_ORIGINS
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
