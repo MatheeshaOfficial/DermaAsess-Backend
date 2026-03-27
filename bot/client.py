@@ -1,13 +1,11 @@
 from pyrogram import Client
-import os
-from dotenv import load_dotenv
+from config import API_HASH, API_ID, BOT_TOKEN
 
-load_dotenv()
 
 bot = Client(
     name="dermaassess_bot",
-    api_id=int(os.getenv("API_ID", "0")),
-    api_hash=os.getenv("API_HASH", ""),
-    bot_token=os.getenv("BOT_TOKEN", ""),
+    api_id=int(API_ID),
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN,
     in_memory=True
 )

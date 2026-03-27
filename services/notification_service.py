@@ -1,7 +1,6 @@
-import os
 import traceback
 from pyrogram.enums import ParseMode
-import supabase
+from database import supabase_client
 
 def _format_skin_telegram(data: dict) -> str:
     action = data.get("recommended_action", "")
@@ -54,10 +53,6 @@ async def notify_user(user_id: str, event_type: str, data: dict):
     from bot.client import bot # dynamic import
     
     try:
-        supabase_client = supabase.create_client(
-            os.getenv("SUPABASE_URL", ""),
-            os.getenv("SUPABASE_SERVICE_KEY", "")
-        )
         
         response = supabase_client.table("profiles").select("*").eq("id", user_id).execute()
         if not response.data:

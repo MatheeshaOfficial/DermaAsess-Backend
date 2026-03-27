@@ -1,10 +1,8 @@
 from pyrogram import filters
 from pyrogram.enums import ParseMode
 from bot.client import bot
-import supabase
-import os
+from database import supabase_client
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 @bot.on_message(filters.command("profile") & filters.private)
 async def profile_handler(client, message):

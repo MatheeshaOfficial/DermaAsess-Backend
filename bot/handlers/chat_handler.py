@@ -1,11 +1,9 @@
 from pyrogram import filters
 from bot.client import bot
 from pyrogram.enums import ParseMode
-import supabase
-import os
+from database import supabase_client
 from services.gemini_service import chat_with_dermabot
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 @bot.on_message(filters.text & filters.private & ~filters.command(""))
 async def text_handler(client, message):

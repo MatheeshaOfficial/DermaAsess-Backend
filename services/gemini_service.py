@@ -1,12 +1,10 @@
-import os
 import json
 import google.generativeai as genai
 from typing import List, Optional, Dict
-from dotenv import load_dotenv
+from config import GEMINI_API_KEY
 
-load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 def clean_json_response(text: str) -> str:

@@ -1,10 +1,8 @@
-import os
 import httpx
-from dotenv import load_dotenv
+from config import USDA_API_KEY
 
-load_dotenv()
 
-USDA_API_KEY = os.getenv("USDA_API_KEY")
+USDA_API_KEY = USDA_API_KEY
 
 async def lookup_nutrition(food_name: str) -> dict:
     if not USDA_API_KEY:

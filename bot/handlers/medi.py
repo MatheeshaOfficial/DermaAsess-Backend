@@ -1,13 +1,11 @@
 from pyrogram import filters
 from pyrogram.enums import ParseMode
 from bot.client import bot
-import supabase
-import os
+from database import supabase_client
 from services.gemini_service import ocr_prescription, check_drug_safety
 from services.cloudinary_service import upload_image
 from services.notification_service import notify_user
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 @bot.on_message(filters.command("medi") & filters.private)
 async def medi_command_handler(client, message):

@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from deps import get_current_user
-import supabase
-import os
+from database import supabase_client
 from services.gemini_service import chat_with_dermabot
 
 router = APIRouter()
 
-supabase_client = supabase.create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 class ChatMessage(BaseModel):
     message: str
