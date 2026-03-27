@@ -53,24 +53,31 @@ async def notify_user(user_id: str, event_type: str, data: dict):
     from bot.client import bot # dynamic import
     
     try:
-        
         response = supabase_client.table("profiles").select("*").eq("id", user_id).execute()
         if not response.data:
             return
             
         profile = response.data[0]
+        channel = profile.get("notification_channel", "email")
         telegram_id = profile.get("telegram_id")
         email = profile.get("email")
-        pref = profile.get("notification_channel", "telegram")
 
-        should_send_telegram = telegram_id and (pref in ["telegram", "both"] or event_type == "emergency")
-        should_send_email = email and (pref in ["email", "both"] or event_type == "emergency")
-
-        # Fallback
-        if telegram_id and not email and not should_send_telegram:
+        # ROUTING LOGIC:
+        if event_type == "emergency":
+            should_send_telegram = bool(telegram_id)
+            should_send_email = bool(email)
+        elif channel == "telegram" and telegram_id:
             should_send_telegram = True
-        if email and not telegram_id and not should_send_email:
+            should_send_email = False
+        elif channel == "email" and email:
+            should_send_telegram = False
             should_send_email = True
+        elif channel == "both":
+            should_send_telegram = bool(telegram_id)
+            should_send_email = bool(email)
+        else:
+            should_send_telegram = bool(telegram_id)
+            should_send_email = bool(email) and not telegram_id
 
         if should_send_telegram:
             text = ""
@@ -102,7 +109,10 @@ async def notify_user(user_id: str, event_type: str, data: dict):
                 subject, html_body = edata["subject"], edata["html_body"]
 
             if subject and html_body:
-                await send_email(email, subject, html_body)
+                try:
+                    await send_email(email, subject, html_body)
+                except Exception as e:
+                    print(f"Failed to send email: {e}")
 
     except Exception:
         print("Notification error:", traceback.format_exc())
