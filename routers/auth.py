@@ -3,7 +3,7 @@ import os
 import secrets
 import httpx
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from database import supabase_client
 from config import GOOGLE_CLIENT_ID, BOT_USERNAME
@@ -34,12 +34,28 @@ def determine_login_method(has_telegram: bool, has_email: bool):
 
 
 @router.post("/telegram-start")
-async def telegram_start():
+async def telegram_start(request: Request):
     try:
         session_token = secrets.token_urlsafe(32)
-        supabase_client.table("telegram_login_sessions").insert({
-            "session_token": session_token
-        }).execute()
+        
+        # Check for optional auth token to support linking
+        auth_header = request.headers.get("Authorization")
+        user_id = None
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            try:
+                import jwt
+                from config import JWT_SECRET
+                payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+                user_id = payload.get("sub")
+            except Exception:
+                pass
+
+        insert_data = {"session_token": session_token}
+        if user_id:
+            insert_data["profile_id"] = user_id
+
+        supabase_client.table("telegram_login_sessions").insert(insert_data).execute()
         
         bot_link = f"https://t.me/{BOT_USERNAME}?start=login_{session_token}"
         
@@ -67,15 +83,39 @@ async def telegram_complete(data: TelegramCompleteData):
             raise HTTPException(status_code=400, detail="Invalid or expired session")
             
         session_id = session_resp.data[0]["id"]
+        linked_profile_id = session_resp.data[0].get("profile_id")
         
-        # ── Find or create user ───────────────────────────────
-        bot_resp = supabase_client.table("bot_users") \
-            .select("profile_id") \
-            .eq("telegram_id", data.telegram_id) \
-            .execute()
-
+        # ── Handle Linking or Login ───────────────────────────
         is_new_user = False
         profile_id = None
+
+        if linked_profile_id:
+            profile_id = linked_profile_id
+            
+            # Update only telegram aspects of profile
+            supabase_client.table("profiles").update({
+                "telegram_id": data.telegram_id,
+                "telegram_username": data.username
+            }).eq("id", profile_id).execute()
+            
+            bot_resp = supabase_client.table("bot_users").select("*").eq("telegram_id", data.telegram_id).execute()
+            if not bot_resp.data:
+                supabase_client.table("bot_users").insert({
+                    "telegram_id": data.telegram_id,
+                    "first_name": data.first_name,
+                    "telegram_username": data.username,
+                    "profile_id": profile_id,
+                    "onboarded": False,
+                    "current_state": "idle"
+                }).execute()
+            else:
+                supabase_client.table("bot_users").update({"profile_id": profile_id}).eq("telegram_id", data.telegram_id).execute()
+                
+        else:
+            bot_resp = supabase_client.table("bot_users") \
+                .select("profile_id") \
+                .eq("telegram_id", data.telegram_id) \
+                .execute()
 
         if bot_resp.data and bot_resp.data[0].get("profile_id"):
             profile_id = bot_resp.data[0]["profile_id"]

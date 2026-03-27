@@ -11,7 +11,7 @@ router = APIRouter()
 @router.post("/log")
 async def log_weight(
     weight_kg: float = Form(...),
-    image: UploadFile = File(None),
+    meal_image: UploadFile = File(None),
     current_user: dict = Depends(get_current_user)
 ):
     try:
@@ -23,9 +23,9 @@ async def log_weight(
         
         meal_analysis = {}
         
-        if image:
-            img_bytes = await image.read()
-            mime_type = image.content_type
+        if meal_image:
+            img_bytes = await meal_image.read()
+            mime_type = meal_image.content_type
             meal_analysis = await analyze_meal(img_bytes, mime_type)
             record["meal_description"] = ", ".join(meal_analysis.get("food_items", []))
             record["calories_estimate"] = meal_analysis.get("calories_estimate", 0)
@@ -46,5 +46,17 @@ async def log_weight(
         await notify_user(user_id, "weight_logged", notify_data)
         
         return save_resp.data[0]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/history")
+async def get_history(current_user: dict = Depends(get_current_user)):
+    try:
+        resp = supabase_client.table("weight_logs") \
+            .select("*") \
+            .eq("user_id", current_user["user_id"]) \
+            .order("logged_at", desc=True) \
+            .execute()
+        return resp.data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

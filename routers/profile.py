@@ -8,12 +8,13 @@ router = APIRouter()
 
 
 class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
     email: Optional[str] = None
     notification_channel: Optional[str] = None
     age: Optional[int] = None
-    gender: Optional[str] = None
-    weight: Optional[float] = None
-    height: Optional[float] = None
+    weight_kg: Optional[float] = None
+    height_cm: Optional[float] = None
+    allergies: Optional[List[str]] = None
     chronic_conditions: Optional[List[str]] = None
 
 
