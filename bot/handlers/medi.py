@@ -1,5 +1,5 @@
 from pyrogram import filters
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatAction
 from bot.client import bot
 from database import supabase_client
 from services.gemini_service import ocr_prescription, check_drug_safety
@@ -30,7 +30,7 @@ async def medi_photo_handler(client, message):
         telegram_id = message.from_user.id
         supabase_client.table("bot_users").update({"current_state": "idle"}).eq("telegram_id", telegram_id).execute()
         
-        await client.send_chat_action(telegram_id, "typing")
+        await client.send_chat_action(telegram_id, ChatAction.TYPING)
         await message.reply_text("💊 Reading your prescription...")
         
         file = await client.download_media(message.photo, in_memory=True)
@@ -53,7 +53,8 @@ async def medi_photo_handler(client, message):
             supabase_client.table("prescriptions").insert({
                "user_id": profile_id,
                "image_url": img_url,
-               "medicines": medicines,
+               "medicines_found": medicines,
+               "medicines_count": len(medicines),
                "overall_safety": safety_res.get("overall_safety", "caution"),
                "safety_advice": safety_res.get("advice", ""),
                "interactions": safety_res.get("interactions", []),
