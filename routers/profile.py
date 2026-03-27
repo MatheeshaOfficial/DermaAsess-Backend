@@ -11,6 +11,7 @@ class ProfileUpdate(BaseModel):
     notification_channel: str = None
 
 @router.put("/")
+@router.put("/me")
 async def update_profile(update_data: ProfileUpdate, current_user: dict = Depends(get_current_user)):
     try:
         data = update_data.model_dump(exclude_unset=True)
