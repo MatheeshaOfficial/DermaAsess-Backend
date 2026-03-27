@@ -1,6 +1,6 @@
 from pyrogram import filters
 from bot.client import bot
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatAction
 from database import supabase_client
 from services.gemini_service import analyze_skin_image
 from services.cloudinary_service import upload_image
@@ -28,7 +28,7 @@ async def photo_handler(client, message):
             await meal_photo_handler(client, message)
             return
             
-        await client.send_chat_action(telegram_id, "typing")
+        await client.send_chat_action(telegram_id, ChatAction.TYPING)
         await message.reply_text("🔬 Analysing your skin image...")
         
         photo = message.photo

@@ -1,6 +1,6 @@
 from pyrogram import filters
 from bot.client import bot
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatAction
 from database import supabase_client
 import os
 from services.gemini_service import analyze_meal
@@ -64,7 +64,7 @@ async def meal_photo_handler(client, message):
         weight = sess_data.get("pending_weight", 0)
         supabase_client.table("bot_users").update({"current_state": "idle", "session_data": {}}).eq("telegram_id", telegram_id).execute()
         
-        await client.send_chat_action(telegram_id, "typing")
+        await client.send_chat_action(telegram_id, ChatAction.TYPING)
         await message.reply_text("🍽️ Analysing your meal...")
         
         file = await client.download_media(message.photo, in_memory=True)

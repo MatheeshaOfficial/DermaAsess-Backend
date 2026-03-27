@@ -1,11 +1,11 @@
 from pyrogram import filters
 from bot.client import bot
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatAction
 from database import supabase_client
 from services.gemini_service import chat_with_dermabot
 
 
-@bot.on_message(filters.text & filters.private & ~filters.command(""))
+@bot.on_message(filters.text & filters.private & ~filters.regex(r"^/"))
 async def text_handler(client, message):
     try:
         telegram_id = message.from_user.id
@@ -101,7 +101,7 @@ async def text_handler(client, message):
             if not bot_user.get("onboarded"):
                 await message.reply_text("Please complete setup first — send /start")
                 return
-            await client.send_chat_action(telegram_id, "typing")
+            await client.send_chat_action(telegram_id, ChatAction.TYPING)
             profile_id = bot_user.get("profile_id")
             if not profile_id: return
             
