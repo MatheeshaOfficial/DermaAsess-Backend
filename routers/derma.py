@@ -1,10 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from deps import get_current_user
-from database import supabase_client, get_db
-from sqlalchemy.orm import Session
-from sqlalchemy import text
+from database import supabase_client
 from services.gemini_service import analyze_skin_image
-import json
 from services.cloudinary_service import upload_image
 from services.notification_service import notify_user
 import urllib.parse
@@ -16,8 +13,7 @@ router = APIRouter()
 async def assess_skin(
     image: UploadFile = File(...),
     symptoms: str = Form("No symptoms described"),
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: dict = Depends(get_current_user)
 ):
     try:
         user_id = current_user["user_id"]
@@ -31,26 +27,6 @@ async def assess_skin(
         
         image_url = upload_image(img_bytes, folder=f"dermaassess/users/{user_id}/skin")
         
-        query = text("""
-            INSERT INTO skin_assessments (user_id, image_url, severity_score, contagion_risk, recommended_action, diagnosis, possible_conditions, advice, symptoms)
-            VALUES (:user_id, :image_url, :severity_score, :contagion_risk, :recommended_action, :diagnosis, :possible_conditions, :advice, :symptoms)
-            RETURNING *
-        """)
-        params = {
-            "user_id": user_id,
-            "image_url": image_url,
-            "severity_score": result.get("severity", 5),
-            "contagion_risk": result.get("contagion_risk", "low"),
-            "recommended_action": result.get("recommended_action", "clinic"),
-            "diagnosis": result.get("diagnosis", ""),
-            "possible_conditions": json.dumps(result.get("possible_conditions", [])),
-            "advice": result.get("advice", ""),
-            "symptoms": symptoms
-        }
-        res = db.execute(query, params).fetchone()
-        db.commit()
-        saved_record = dict(res._mapping) if res else {}
-        
         db_data = {
             "user_id": user_id,
             "image_url": image_url,
@@ -63,22 +39,19 @@ async def assess_skin(
             "symptoms": symptoms
         }
         
+        save_resp = supabase_client.table("skin_assessments").insert(db_data).execute()
+        
         event_type = "emergency" if db_data["severity_score"] >= 7 else "skin_assessment"
         await notify_user(user_id, event_type, db_data)
         
-        return saved_record
+        return save_resp.data[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/history")
-async def get_history(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_history(current_user: dict = Depends(get_current_user)):
     try:
-         query = text("""
-             SELECT * FROM skin_assessments 
-             WHERE user_id = :uid 
-             ORDER BY created_at DESC
-         """)
-         rows = db.execute(query, {"uid": current_user["user_id"]}).fetchall()
-         return [dict(r._mapping) for r in rows]
+         resp = supabase_client.table("skin_assessments").select("*").eq("user_id", current_user["user_id"]).order("created_at", desc=True).execute()
+         return resp.data
     except Exception as e:
          raise HTTPException(status_code=500, detail=str(e))

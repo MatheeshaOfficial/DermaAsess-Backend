@@ -7,10 +7,6 @@ from config import ALLOWED_ORIGINS
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize the database
-    from database import init_db
-    init_db()
-
     # Register handlers implicitly through runner
     from bot.runner import start_bot, stop_bot
     await start_bot()
