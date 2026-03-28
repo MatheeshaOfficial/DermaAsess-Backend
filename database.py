@@ -56,9 +56,103 @@ def init_db():
                 );
             """))
             
+            # Profiles
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS profiles (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    full_name TEXT NULL,
+                    email TEXT UNIQUE NULL,
+                    notification_channel TEXT NULL,
+                    login_method TEXT NULL,
+                    age INT NULL,
+                    weight_kg FLOAT NULL,
+                    height_cm FLOAT NULL,
+                    allergies JSONB NULL,
+                    chronic_conditions JSONB NULL,
+                    telegram_id BIGINT UNIQUE NULL,
+                    telegram_username TEXT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """))
+
+            # Bot Users
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS bot_users (
+                    telegram_id BIGINT PRIMARY KEY,
+                    first_name TEXT NULL,
+                    telegram_username TEXT NULL,
+                    profile_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+                    onboarded BOOLEAN DEFAULT FALSE,
+                    current_state TEXT DEFAULT 'idle',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """))
+
+            # Weight Logs
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS weight_logs (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+                    weight_kg FLOAT NOT NULL,
+                    meal_description TEXT NULL,
+                    calories_estimate FLOAT NULL,
+                    protein_g FLOAT NULL,
+                    carbs_g FLOAT NULL,
+                    fat_g FLOAT NULL,
+                    meal_image_url TEXT NULL,
+                    logged_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """))
+
+            # Skin Assessments
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS skin_assessments (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+                    image_url TEXT NULL,
+                    severity_score INT NULL,
+                    contagion_risk TEXT NULL,
+                    recommended_action TEXT NULL,
+                    diagnosis TEXT NULL,
+                    possible_conditions JSONB NULL,
+                    advice TEXT NULL,
+                    symptoms TEXT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """))
+
+            # Prescriptions
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS prescriptions (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+                    image_url TEXT NULL,
+                    medicines_found JSONB NULL,
+                    medicines_count INT NULL,
+                    overall_safety TEXT NULL,
+                    safety_advice TEXT NULL,
+                    interactions JSONB NULL,
+                    allergy_alerts JSONB NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """))
+
+            # Chat Messages
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    session_id TEXT NOT NULL,
+                    user_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+            """))
+            
             # Create indexes
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tls_session_token ON telegram_login_sessions(session_token);"))
             conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tls_status ON telegram_login_sessions(status);"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);"))
             
         print("Database initialized successfully.")
     except Exception as e:
