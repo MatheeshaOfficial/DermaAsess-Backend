@@ -14,7 +14,21 @@ SessionLocal = None
 
 if DATABASE_URL:
     try:
-        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        import urllib.parse
+        safe_db_url = DATABASE_URL
+        if safe_db_url.startswith("postgresql://") or safe_db_url.startswith("postgres://"):
+            try:
+                scheme, rest = safe_db_url.split("://", 1)
+                if "@" in rest:
+                    user_pass, host_part = rest.rsplit("@", 1)
+                    if ":" in user_pass:
+                        user, password = user_pass.split(":", 1)
+                        encoded_password = urllib.parse.quote(urllib.parse.unquote(password))
+                        safe_db_url = f"{scheme}://{user}:{encoded_password}@{host_part}"
+            except Exception as parse_e:
+                print(f"Warning: URL parsing failed: {parse_e}")
+                
+        engine = create_engine(safe_db_url, pool_pre_ping=True)
         SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     except Exception as e:
         print(f"Error creating database engine: {e}")
