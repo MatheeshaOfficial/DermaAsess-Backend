@@ -55,7 +55,7 @@ async def get_history(current_user: dict = Depends(get_current_user)):
         resp = supabase_client.table("weight_logs") \
             .select("*") \
             .eq("user_id", current_user["user_id"]) \
-            .order("logged_at", desc=True) \
+            .order("created_at", desc=True) \
             .execute()
         return resp.data
     except Exception as e:
