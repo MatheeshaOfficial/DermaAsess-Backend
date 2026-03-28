@@ -6,6 +6,7 @@ load_dotenv()
 # Database
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # Telegram Bot
 API_ID = os.getenv("API_ID", "0")

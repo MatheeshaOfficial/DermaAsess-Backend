@@ -1,11 +1,13 @@
-import time
+﻿import time
 import os
 import secrets
 import httpx
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
-from database import supabase_client
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+from database import supabase_client, get_db
 from config import GOOGLE_CLIENT_ID, BOT_USERNAME
 from deps import create_jwt, get_current_user
 
@@ -34,7 +36,7 @@ def determine_login_method(has_telegram: bool, has_email: bool):
 
 
 @router.post("/telegram-start")
-async def telegram_start(request: Request):
+async def telegram_start(request: Request, db: Session = Depends(get_db)):
     try:
         session_token = secrets.token_urlsafe(32)
         
@@ -51,46 +53,85 @@ async def telegram_start(request: Request):
             except Exception:
                 pass
 
-        insert_data = {"session_token": session_token}
-        if user_id:
-            insert_data["profile_id"] = user_id
-
-        supabase_client.table("telegram_login_sessions").insert(insert_data).execute()
+        print(f"DEBUG: Generating telegram auth session. token={session_token[:8]}..., user_id={user_id}")
+        
+        insert_query = text("""
+            INSERT INTO telegram_login_sessions (session_token, profile_id, status)
+            VALUES (:session_token, :profile_id, 'pending')
+        """)
+        
+        params = {
+            "session_token": session_token,
+            "profile_id": user_id
+        }
+        
+        db.execute(insert_query, params)
+        db.commit()
+        
+        # Verify it was inserted
+        verify = db.execute(text("SELECT id FROM telegram_login_sessions WHERE session_token = :t"), {"t": session_token}).fetchone()
+        if not verify:
+            raise Exception("Failed to verify insertion of session_token")
+            
+        print(f"DEBUG: Session row inserted successfully, id={verify[0]}")
         
         bot_link = f"https://t.me/{BOT_USERNAME}?start=login_{session_token}"
         
         return {
             "success": True,
             "session_token": session_token,
-            "bot_link": bot_link
+            "bot_link": bot_link,
+            "auth_link": bot_link
         }
     except Exception as e:
         import traceback; traceback.print_exc()
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/telegram-complete")
-async def telegram_complete(data: TelegramCompleteData):
+async def telegram_complete(data: TelegramCompleteData, db: Session = Depends(get_db)):
     try:
-        # ── Verify session ─────────────────────────────────────────
-        session_resp = supabase_client.table("telegram_login_sessions") \
-            .select("*") \
-            .eq("session_token", data.session_token) \
-            .eq("status", "pending") \
-            .execute()
-            
-        if not session_resp.data:
-            raise HTTPException(status_code=400, detail="Invalid or expired session")
-            
-        session_id = session_resp.data[0]["id"]
-        linked_profile_id = session_resp.data[0].get("profile_id")
+        print(f"DEBUG: telegram_complete called for session={data.session_token[:8]}...")
         
-        # ── Handle Linking or Login ───────────────────────────
+        # â”€â”€ Verify session in PostgreSQL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        query = text("""
+            SELECT id, profile_id, status, expires_at 
+            FROM telegram_login_sessions 
+            WHERE session_token = :token
+        """)
+        session_row = db.execute(query, {"token": data.session_token}).fetchone()
+        
+        if not session_row:
+            raise HTTPException(status_code=400, detail="Invalid or expired login session")
+            
+        session_id = session_row[0]
+        linked_profile_id = session_row[1]
+        status = session_row[2]
+        expires_at = session_row[3]
+        
+        if expires_at.tzinfo is None:
+            from datetime import timezone
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+            
+        if status != 'pending':
+            raise HTTPException(status_code=400, detail=f"Session is already {status}")
+            
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        
+        if expires_at < now:
+            print(f"DEBUG: Session {session_id} expired.")
+            db.execute(text("UPDATE telegram_login_sessions SET status = 'expired' WHERE id = :id"), {"id": session_id})
+            db.commit()
+            raise HTTPException(status_code=400, detail="Invalid or expired login session")
+
+        # â”€â”€ Handle Linking or Login â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         is_new_user = False
         profile_id = None
 
         if linked_profile_id:
-            profile_id = linked_profile_id
+            profile_id = str(linked_profile_id)
             
             # Update only telegram aspects of profile
             supabase_client.table("profiles").update({
@@ -117,42 +158,42 @@ async def telegram_complete(data: TelegramCompleteData):
                 .eq("telegram_id", data.telegram_id) \
                 .execute()
 
-        if bot_resp.data and bot_resp.data[0].get("profile_id"):
-            profile_id = bot_resp.data[0]["profile_id"]
-        else:
-            is_new_user = True
-            prof_resp = supabase_client.table("profiles").insert({
-                "full_name": data.first_name,
-                "telegram_id": data.telegram_id,
-                "telegram_username": data.username,
-                "notification_channel": "telegram",
-                "login_method": "telegram"
-            }).execute()
-            profile_id = prof_resp.data[0]["id"]
-
-            if not bot_resp.data:
-                supabase_client.table("bot_users").insert({
-                    "telegram_id": data.telegram_id,
-                    "first_name": data.first_name,
-                    "telegram_username": data.username,
-                    "profile_id": profile_id,
-                    "onboarded": False,
-                    "current_state": "idle"
-                }).execute()
+            if bot_resp.data and bot_resp.data[0].get("profile_id"):
+                profile_id = bot_resp.data[0]["profile_id"]
             else:
-                supabase_client.table("bot_users") \
-                    .update({"profile_id": profile_id}) \
-                    .eq("telegram_id", data.telegram_id) \
-                    .execute()
+                is_new_user = True
+                prof_resp = supabase_client.table("profiles").insert({
+                    "full_name": data.first_name,
+                    "telegram_id": data.telegram_id,
+                    "telegram_username": data.username,
+                    "notification_channel": "telegram",
+                    "login_method": "telegram"
+                }).execute()
+                profile_id = prof_resp.data[0]["id"]
 
-        # ── Get full profile ──────────────────────────────────
+                if not bot_resp.data:
+                    supabase_client.table("bot_users").insert({
+                        "telegram_id": data.telegram_id,
+                        "first_name": data.first_name,
+                        "telegram_username": data.username,
+                        "profile_id": profile_id,
+                        "onboarded": False,
+                        "current_state": "idle"
+                    }).execute()
+                else:
+                    supabase_client.table("bot_users") \
+                        .update({"profile_id": profile_id}) \
+                        .eq("telegram_id", data.telegram_id) \
+                        .execute()
+
+        # â”€â”€ Get full profile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         prof_check = supabase_client.table("profiles") \
             .select("*") \
             .eq("id", profile_id) \
             .execute()
         profile = prof_check.data[0]
 
-        # ── Determine method + channel ────────────────────────
+        # â”€â”€ Determine method + channel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         login_method, notification_channel = determine_login_method(
             has_telegram=bool(profile.get("telegram_id")),
             has_email=bool(profile.get("email"))
@@ -176,64 +217,101 @@ async def telegram_complete(data: TelegramCompleteData):
             login_method
         )
         
-        # ── Mark session completed ────────────────────────────
-        supabase_client.table("telegram_login_sessions") \
-            .update({
-                "status": "completed",
-                "jwt_token": jwt_token,
-                "telegram_id": data.telegram_id,
-                "first_name": data.first_name,
-                "username": data.username,
-                "profile_id": profile_id
-            }) \
-            .eq("id", session_id) \
-            .execute()
+        # â”€â”€ Mark session completed in PostgreSQL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        update_query = text("""
+            UPDATE telegram_login_sessions 
+            SET status = 'completed',
+                jwt_token = :jwt_token,
+                telegram_id = :telegram_id,
+                telegram_username = :telegram_username,
+                telegram_name = :telegram_name,
+                profile_id = :profile_id,
+                completed_at = now()
+            WHERE id = :id
+        """)
+        db.execute(update_query, {
+            "jwt_token": jwt_token,
+            "telegram_id": data.telegram_id,
+            "telegram_username": data.username,
+            "telegram_name": data.first_name,
+            "profile_id": profile_id,
+            "id": session_id
+        })
+        db.commit()
+        print(f"DEBUG: Session {session_id} marked as completed for profile {profile_id}")
 
-        return {"success": True}
+        return {
+            "success": True,
+            "token": jwt_token,
+            "redirect_url": "/" # Required by prompt: "<frontend url if your project uses one, otherwise omit>"
+        }
 
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         import traceback; traceback.print_exc()
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/telegram-status/{session_token}")
-async def telegram_status(session_token: str):
+async def telegram_status(session_token: str, db: Session = Depends(get_db)):
     try:
-        session_resp = supabase_client.table("telegram_login_sessions") \
-            .select("*") \
-            .eq("session_token", session_token) \
-            .execute()
-            
-        if not session_resp.data:
+        print(f"DEBUG: telegram_status polled for session={session_token[:8]}...")
+        query = text("""
+            SELECT id, status, jwt_token, expires_at 
+            FROM telegram_login_sessions 
+            WHERE session_token = :token
+        """)
+        session_row = db.execute(query, {"token": session_token}).fetchone()
+        
+        if not session_row:
             raise HTTPException(status_code=404, detail="Session not found")
             
-        session_data = session_resp.data[0]
+        session_id = session_row[0]
+        status = session_row[1]
+        jwt_token = session_row[2]
+        expires_at = session_row[3]
         
-        if session_data["status"] == "pending":
+        if expires_at.tzinfo is None:
+            from datetime import timezone
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        
+        if status == 'pending':
+            if expires_at < now:
+                db.execute(text("UPDATE telegram_login_sessions SET status = 'expired' WHERE id = :id"), {"id": session_id})
+                db.commit()
+                return {"success": False, "status": "expired"}
             return {"success": True, "status": "pending"}
-        elif session_data["status"] == "completed":
+            
+        elif status == 'completed':
             return {
                 "success": True,
                 "status": "completed",
-                "access_token": session_data["jwt_token"],
+                "token": jwt_token,
+                "access_token": jwt_token,
                 "token_type": "bearer"
             }
         else:
-            raise HTTPException(status_code=400, detail=f"Session state {session_data['status']}")
+            return {"success": False, "status": "expired"}
             
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         import traceback; traceback.print_exc()
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/google-login")
 async def google_login(data: GoogleAuthData):
     try:
-        # ── Verify Google ID token ────────────────────────────
+        # â”€â”€ Verify Google ID token â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 "https://oauth2.googleapis.com/tokeninfo",
@@ -252,14 +330,14 @@ async def google_login(data: GoogleAuthData):
         if not email:
             raise HTTPException(status_code=400, detail="Email not provided by Google")
 
-        # ── Build full_name from Google token ─────────────────
+        # â”€â”€ Build full_name from Google token â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         # Google gives: name (full), given_name, family_name
         full_name = (
             token_info.get("name")              # "John Smith"
             or token_info.get("given_name", "") # fallback to first name
         ).strip() or None
 
-        # ── Find or create profile ────────────────────────────
+        # â”€â”€ Find or create profile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         prof_check = supabase_client.table("profiles") \
             .select("*") \
             .eq("email", email) \
@@ -273,7 +351,7 @@ async def google_login(data: GoogleAuthData):
         else:
             is_new_user = True
             prof_resp = supabase_client.table("profiles").insert({
-                "full_name": full_name,          # ← fixed: was first_name/last_name
+                "full_name": full_name,          # â† fixed: was first_name/last_name
                 "email": email,
                 "notification_channel": "email",
                 "login_method": "google"
@@ -281,7 +359,7 @@ async def google_login(data: GoogleAuthData):
             profile = prof_resp.data[0]
             profile_id = profile["id"]
 
-        # ── Determine method + channel ────────────────────────
+        # â”€â”€ Determine method + channel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         login_method, notification_channel = determine_login_method(
             has_telegram=bool(profile.get("telegram_id")),
             has_email=bool(profile.get("email"))
@@ -331,7 +409,7 @@ async def link_google(
     current_user: dict = Depends(get_current_user)
 ):
     try:
-        # ── Verify Google ID token ────────────────────────────
+        # â”€â”€ Verify Google ID token â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 "https://oauth2.googleapis.com/tokeninfo",
@@ -352,7 +430,7 @@ async def link_google(
 
         user_id = current_user["user_id"]
 
-        # ── Check for duplicate ───────────────────────────────
+        # â”€â”€ Check for duplicate â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         dup_check = supabase_client.table("profiles") \
             .select("id") \
             .eq("email", email) \
@@ -364,11 +442,11 @@ async def link_google(
                 detail="This Google account is already linked to another DermaAssess account"
             )
 
-        # ── Update profile ────────────────────────────────────
+        # â”€â”€ Update profile â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         supabase_client.table("profiles").update({
             "email": email,
             "login_method": "both"
-            # notification_channel stays "telegram" — already has telegram
+            # notification_channel stays "telegram" â€” already has telegram
         }).eq("id", user_id).execute()
 
         return {
