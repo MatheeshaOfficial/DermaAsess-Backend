@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from deps import get_current_user
 from database import supabase_client
-from services.gemini_service import ocr_prescription, check_drug_safety
+from services.medisafe_service import analyze_prescription
 from services.cloudinary_service import upload_image
 from services.notification_service import notify_user
 
@@ -21,10 +21,16 @@ async def scan_prescription(
         prof_resp = supabase_client.table("profiles").select("*").eq("id", user_id).execute()
         profile = prof_resp.data[0] if prof_resp.data else {}
         
-        ocr_result = await ocr_prescription(img_bytes, mime_type)
-        medicines = ocr_result.get("medicines", [])
-        
-        safety_result = await check_drug_safety(medicines, profile)
+        user_allergies = profile.get("allergies", [])
+        if isinstance(user_allergies, str):
+            import json
+            try:
+                user_allergies = json.loads(user_allergies)
+            except:
+                user_allergies = [user_allergies]
+
+        safety_result = analyze_prescription(img_bytes, user_allergies=user_allergies)
+        medicines = safety_result.get("medicines", [])
         
         image_url = upload_image(img_bytes, folder=f"dermaassess/users/{user_id}/prescriptions")
         
