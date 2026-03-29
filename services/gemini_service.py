@@ -43,6 +43,32 @@ async def analyze_skin_image(image_bytes: bytes, mime_type: str, symptoms: str, 
     except Exception:
         return {"severity": 5, "contagion_risk": "low", "recommended_action": "clinic", "diagnosis": "Could not parse diagnosis.", "possible_conditions": ["Unknown"], "advice": "Please consult a doctor."}
 
+async def generate_symptom_assessment(predictions: list, symptoms: str, profile: dict) -> dict:
+    prompt = f"""
+    You are an expert dermatologist AI. The visual diagnostic model identified these possible conditions: {predictions}.
+    The user is experiencing these symptoms: '{symptoms}'.
+    User Profile: Age {profile.get('age', 'Unknown')}, Allergies: {profile.get('allergies', 'None')}, Conditions: {profile.get('conditions', 'None')}.
+    
+    Synthesize this information and respond STRICTLY in JSON format:
+    {{
+        "severity": integer (1-10),
+        "contagion_risk": string ("low", "medium", "high"),
+        "recommended_action": string ("self-care", "clinic", "emergency"),
+        "advice": string (what to do next, tailored to the symptoms and conditions)
+    }}
+    """
+    response = model.generate_content([prompt])
+    try:
+        data = clean_json_response(response.text)
+        return json.loads(data)
+    except Exception:
+        return {
+            "severity": 5, 
+            "contagion_risk": "low", 
+            "recommended_action": "clinic", 
+            "advice": "Please consult a doctor for a proper evaluation."
+        }
+
 async def ocr_prescription(image_bytes: bytes, mime_type: str) -> dict:
     prompt = """
     Extract all medicines from this prescription/label.

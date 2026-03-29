@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from deps import get_current_user
 from database import supabase_client
 from services.skin_service import predict_skin
+from services.gemini_service import generate_symptom_assessment
 from services.cloudinary_service import upload_image
 from services.notification_service import notify_user
 import urllib.parse
@@ -25,17 +26,23 @@ async def assess_skin(
         
         result = predict_skin(img_bytes)
         
+        gemini_result = await generate_symptom_assessment(
+            predictions=result.get("possible_conditions", []),
+            symptoms=symptoms,
+            profile=profile
+        )
+        
         image_url = upload_image(img_bytes, folder=f"dermaassess/users/{user_id}/skin")
         
         db_data = {
             "user_id": user_id,
             "image_url": image_url,
-            "severity_score": result.get("severity_score", 5),
-            "contagion_risk": result.get("contagion_risk", "low"),
-            "recommended_action": result.get("recommended_action", "clinic"),
+            "severity_score": gemini_result.get("severity", result.get("severity_score", 5)),
+            "contagion_risk": gemini_result.get("contagion_risk", result.get("contagion_risk", "low")),
+            "recommended_action": gemini_result.get("recommended_action", result.get("recommended_action", "clinic")),
             "diagnosis": result.get("ai_diagnosis", ""),
             "possible_conditions": result.get("possible_conditions", []),
-            "advice": result.get("ai_advice", ""),
+            "advice": gemini_result.get("advice", result.get("ai_advice", "")),
             "symptoms": symptoms
         }
         

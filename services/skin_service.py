@@ -1,4 +1,5 @@
 import io
+import re
 import torch
 import timm
 import numpy as np
@@ -20,6 +21,10 @@ val_transform = A.Compose([
 
 _model       = None
 _checkpoint  = None
+
+def clean_label(label: str) -> str:
+    # Removes e.g. "9. " at start and "- 1.7k" at end
+    return re.sub(r'^\d+\.\s*|-\s*[\d.]+[kKmMgG]?$', '', label).strip()
 
 
 def load_model():
@@ -66,8 +71,9 @@ def predict_skin(image_bytes: bytes) -> dict:
 
     pred_idx   = probs.argmax().item()
     confidence = probs[pred_idx].item()
-    pred_name  = label_names[pred_idx]
-    severity   = severity_map.get(pred_name, {
+    raw_pred_name = label_names[pred_idx]
+    pred_name  = clean_label(raw_pred_name)
+    severity   = severity_map.get(raw_pred_name, {
         "severity": 3,
         "action":   "clinic",
         "risk":     "low",
@@ -78,7 +84,7 @@ def predict_skin(image_bytes: bytes) -> dict:
     top3_idx   = probs.topk(3).indices.tolist()
     top3_probs = probs.topk(3).values.tolist()
     possible_conditions = [
-        label_names[i] for i in top3_idx
+        clean_label(label_names[i]) for i in top3_idx
     ]
 
     # Warning signs for medium/high severity
