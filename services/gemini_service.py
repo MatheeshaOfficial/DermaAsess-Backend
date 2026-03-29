@@ -33,14 +33,15 @@ async def analyze_skin_image(image_bytes: bytes, mime_type: str, symptoms: str, 
     }}
     """
     vision_model = genai.GenerativeModel('gemini-1.5-flash')
-    response = vision_model.generate_content([
-        {"mime_type": mime_type, "data": image_bytes},
-        prompt
-    ])
     try:
+        response = vision_model.generate_content([
+            {"mime_type": mime_type, "data": image_bytes},
+            prompt
+        ])
         data = clean_json_response(response.text)
         return json.loads(data)
-    except Exception:
+    except Exception as e:
+        print(f"Gemini API Error in analyze_skin_image: {e}")
         return {"severity": 5, "contagion_risk": "low", "recommended_action": "clinic", "diagnosis": "Could not parse diagnosis.", "possible_conditions": ["Unknown"], "advice": "Please consult a doctor."}
 
 async def generate_symptom_assessment(predictions: list, symptoms: str, profile: dict) -> dict:
@@ -57,11 +58,12 @@ async def generate_symptom_assessment(predictions: list, symptoms: str, profile:
         "advice": string (what to do next, tailored to the symptoms and conditions)
     }}
     """
-    response = model.generate_content([prompt])
     try:
+        response = model.generate_content([prompt])
         data = clean_json_response(response.text)
         return json.loads(data)
-    except Exception:
+    except Exception as e:
+        print(f"Gemini API Error in generate_symptom_assessment: {e}")
         return {
             "severity": 5, 
             "contagion_risk": "low", 
