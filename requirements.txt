@@ -12,11 +12,8 @@ pydantic==2.7.1
 pillow==10.3.0
 PyJWT==2.8.0
 gotrue==2.8.1
-<<<<<<< HEAD
 torch==2.2.0
 torchvision==0.17.0
 timm==0.9.16
 albumentations==1.4.0
 numpy==1.26.4
-=======
->>>>>>> 3efa2a2850a1b0535bb86f92f3a35fd5c8ece0cc
