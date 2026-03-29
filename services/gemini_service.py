@@ -1,4 +1,8 @@
 import json
+import warnings
+
+warnings.simplefilter("ignore", category=FutureWarning)
+
 import google.generativeai as genai
 from typing import List, Optional, Dict
 from config import GEMINI_API_KEY

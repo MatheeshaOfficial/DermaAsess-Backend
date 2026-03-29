@@ -1,4 +1,8 @@
 import os
+import warnings
+
+warnings.simplefilter("ignore", category=FutureWarning)
+
 from dotenv import load_dotenv
 load_dotenv()  # must be first — before any other imports
 
