@@ -5,7 +5,7 @@ from config import GEMINI_API_KEY
 
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 def clean_json_response(text: str) -> str:
     text = text.strip()
@@ -32,7 +32,7 @@ async def analyze_skin_image(image_bytes: bytes, mime_type: str, symptoms: str, 
         "advice": string (what to do next)
     }}
     """
-    vision_model = genai.GenerativeModel('gemini-1.5-flash')
+    vision_model = genai.GenerativeModel('gemini-2.5-flash')
     try:
         response = vision_model.generate_content([
             {"mime_type": mime_type, "data": image_bytes},
