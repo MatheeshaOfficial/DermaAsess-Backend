@@ -85,12 +85,13 @@ async def ocr_prescription(image_bytes: bytes, mime_type: str) -> dict:
         ]
     }
     """
-    response = model.generate_content([{"mime_type": mime_type, "data": image_bytes}, prompt])
     try:
+        response = model.generate_content([{"mime_type": mime_type, "data": image_bytes}, prompt])
         data = clean_json_response(response.text)
         return json.loads(data)
-    except Exception:
-         return {"medicines": []}
+    except Exception as e:
+        print(f"Gemini API Error in ocr_prescription: {e}")
+        return {"medicines": []}
 
 async def check_drug_safety(medicines: List[Dict], profile: dict) -> dict:
     prompt = f"""
@@ -105,11 +106,12 @@ async def check_drug_safety(medicines: List[Dict], profile: dict) -> dict:
         "allergy_alerts": [string]
     }}
     """
-    response = model.generate_content([prompt])
     try:
+        response = model.generate_content([prompt])
         data = clean_json_response(response.text)
         return json.loads(data)
-    except Exception:
+    except Exception as e:
+        print(f"Gemini API Error in check_drug_safety: {e}")
         return {"overall_safety": "caution", "advice": "Please consult your pharmacist.", "interactions": [], "allergy_alerts": []}
 
 async def analyze_meal(image_bytes: bytes, mime_type: str) -> dict:
@@ -125,11 +127,12 @@ async def analyze_meal(image_bytes: bytes, mime_type: str) -> dict:
         "advice": string
     }
     """
-    response = model.generate_content([{"mime_type": mime_type, "data": image_bytes}, prompt])
     try:
+        response = model.generate_content([{"mime_type": mime_type, "data": image_bytes}, prompt])
         data = clean_json_response(response.text)
         return json.loads(data)
-    except Exception:
+    except Exception as e:
+        print(f"Gemini API Error in analyze_meal: {e}")
         return {"food_items": ["Unknown"], "calories_estimate": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "advice": "Could not analyze meal."}
 
 async def chat_with_dermabot(message: str, image_bytes: Optional[bytes], mime_type: Optional[str], history: List[dict], profile: dict, rag_context: str = "") -> str:
