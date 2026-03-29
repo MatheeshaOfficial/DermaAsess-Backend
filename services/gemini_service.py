@@ -1,16 +1,12 @@
 import json
 import warnings
-
 warnings.simplefilter("ignore", category=FutureWarning)
 
 import google.generativeai as genai
 from typing import List, Optional, Dict
 from config import GEMINI_API_KEY
-
-
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash')
-
 def clean_json_response(text: str) -> str:
     text = text.strip()
     if text.startswith("```json"):
@@ -20,7 +16,6 @@ def clean_json_response(text: str) -> str:
     if text.endswith("```"):
         text = text[:-len("```")].strip()
     return text
-
 async def analyze_skin_image(image_bytes: bytes, mime_type: str, symptoms: str, profile: dict) -> dict:
     prompt = f"""
     You are an expert dermatologist AI. Analyze the provided skin image and symptoms: '{symptoms}'.
@@ -47,7 +42,6 @@ async def analyze_skin_image(image_bytes: bytes, mime_type: str, symptoms: str, 
     except Exception as e:
         print(f"Gemini API Error in analyze_skin_image: {e}")
         return {"severity": 5, "contagion_risk": "low", "recommended_action": "clinic", "diagnosis": "Could not parse diagnosis.", "possible_conditions": ["Unknown"], "advice": "Please consult a doctor."}
-
 async def generate_symptom_assessment(predictions: list, symptoms: str, profile: dict) -> dict:
     prompt = f"""
     You are an expert dermatologist AI. The visual diagnostic model identified these possible conditions: {predictions}.
@@ -74,7 +68,6 @@ async def generate_symptom_assessment(predictions: list, symptoms: str, profile:
             "recommended_action": "clinic", 
             "advice": "Please consult a doctor for a proper evaluation."
         }
-
 async def ocr_prescription(image_bytes: bytes, mime_type: str) -> dict:
     prompt = """
     Extract all medicines from this prescription/label.
@@ -96,7 +89,6 @@ async def ocr_prescription(image_bytes: bytes, mime_type: str) -> dict:
     except Exception as e:
         print(f"Gemini API Error in ocr_prescription: {e}")
         return {"medicines": []}
-
 async def check_drug_safety(medicines: List[Dict], profile: dict) -> dict:
     prompt = f"""
     Check safety for the following medicines: {json.dumps(medicines)}.
@@ -117,7 +109,6 @@ async def check_drug_safety(medicines: List[Dict], profile: dict) -> dict:
     except Exception as e:
         print(f"Gemini API Error in check_drug_safety: {e}")
         return {"overall_safety": "caution", "advice": "Please consult your pharmacist.", "interactions": [], "allergy_alerts": []}
-
 async def analyze_meal(image_bytes: bytes, mime_type: str) -> dict:
     prompt = """
     Analyze this meal photo. Provide food items and estimate calories.
@@ -138,7 +129,6 @@ async def analyze_meal(image_bytes: bytes, mime_type: str) -> dict:
     except Exception as e:
         print(f"Gemini API Error in analyze_meal: {e}")
         return {"food_items": ["Unknown"], "calories_estimate": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0, "advice": "Could not analyze meal."}
-
 async def chat_with_dermabot(message: str, image_bytes: Optional[bytes], mime_type: Optional[str], history: List[dict], profile: dict, rag_context: str = "") -> str:
     chat = model.start_chat()
     system_prompt = f"You are DermaBot, a helpful health assistant. User Profile: Age {profile.get('age','Unk')}, Allergies: {profile.get('allergies','None')}, Conditions: {profile.get('conditions','None')}."
