@@ -16,45 +16,13 @@ from routers import auth, profile, derma, medisafe, chat, weight
 
 # ── Model warmup ──────────────────────────────────────────────
 async def warmup_models():
-    """
-    Load all AI models into memory at startup.
-    This prevents slow response on the first user request.
-    Each model is loaded once and cached as a singleton.
-    """
+    # Models are no longer warmed up at startup.
+    # Loading 3 local ML models (Skin, OCR, Food) simultaneously uses several gigabytes of RAM.
+    # In cloud environments (like Railway, Render, etc.), this causes an immediate OOM (Out of Memory) SIGKILL.
+    # The application will now lazy-load each model only when its specific endpoint is called.
+    print("[startup] Skipping model warmup to prevent Out-Of-Memory container crashes.")
+    print("[startup] Models will be lazy-loaded on their first request.")
 
-    # 1. Skin disease classifier
-    try:
-        print("[startup] Loading skin disease model...")
-        from services.skin_service import load_model as load_skin
-        load_skin()
-        print("[startup] Skin model ready")
-    except FileNotFoundError:
-        print("[startup] WARNING: models/skin_model.pth not found — "
-              "skin triage will fail until model file is added")
-    except Exception as e:
-        print(f"[startup] WARNING: Skin model failed to load: {e}")
-
-    # 2. MediSafe prescription OCR
-    try:
-        print("[startup] Loading MediSafe OCR model from Hugging Face...")
-        print("[startup] (First run downloads ~300 MB — please wait)")
-        from services.medisafe_service import load_ocr_model
-        load_ocr_model()
-        print("[startup] MediSafe OCR model ready")
-    except Exception as e:
-        print(f"[startup] WARNING: MediSafe model failed to load: {e}")
-
-    # 3. Food / meal classifier
-    try:
-        print("[startup] Loading food classifier from Hugging Face...")
-        print("[startup] (First run downloads ~350 MB — please wait)")
-        from services.weight_service import load_food_model
-        load_food_model()
-        print("[startup] Food classifier model ready")
-    except Exception as e:
-        print(f"[startup] WARNING: Food model failed to load: {e}")
-
-    print("[startup] All models loaded successfully!")
 
 
 # ── Lifespan ──────────────────────────────────────────────────
