@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from deps import get_current_user
 from database import supabase_client
-from services.weight_service import analyze_meal
+from services.gemini_service import analyze_meal
 from services.cloudinary_service import upload_image
 from services.notification_service import notify_user
 
@@ -26,7 +26,7 @@ async def log_weight(
         if meal_image:
             img_bytes = await meal_image.read()
             mime_type = meal_image.content_type
-            meal_analysis = await analyze_meal(img_bytes, user_weight_kg=weight_kg)
+            meal_analysis = await analyze_meal(img_bytes, mime_type)
             record["meal_description"] = ", ".join(meal_analysis.get("food_items", []))
             record["calories_estimate"] = meal_analysis.get("calories_estimate", 0)
             record["protein_g"] = meal_analysis.get("protein_g", 0)
