@@ -6,17 +6,8 @@
 import io
 import torch
 from PIL import Image
-from transformers import (
-    AutoModelForImageClassification,
-    AutoImageProcessor
-)
-
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ── Singletons ────────────────────────────────────────────────
-_model     = None
-_processor = None
-_labels    = None
 
 # ── Calorie database per 100g ─────────────────────────────────
 FOOD_CALORIES = {
@@ -106,18 +97,24 @@ HEALTH_SCORES = {
 
 def load_food_model():
     """Load nateraw/food from Hugging Face."""
-    global _model, _processor, _labels
-    if _model is None:
-        print("Loading food classifier from Hugging Face...")
-        _processor = AutoImageProcessor.from_pretrained("nateraw/food")
-        _model     = AutoModelForImageClassification.from_pretrained(
-            "nateraw/food"
-        ).to(DEVICE)
-        _model.eval()
-        # Get label list from model config
-        _labels = _model.config.id2label
-        print(f"Food model loaded! Classes: {len(_labels)}")
-    return _model, _processor, _labels
+    from transformers import (
+        AutoModelForImageClassification,
+        AutoImageProcessor
+    )
+    print("Loading food classifier from Hugging Face...")
+    processor = AutoImageProcessor.from_pretrained("nateraw/food")
+    # Low memory usage and half-precision floats to fit tight limits
+    model = AutoModelForImageClassification.from_pretrained(
+        "nateraw/food",
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True
+    ).to(DEVICE)
+    model.eval()
+    
+    # Get label list from model config
+    labels = model.config.id2label
+    print(f"Food model loaded! Classes: {len(labels)}")
+    return model, processor, labels
 
 
 def get_serving_size(food_name: str) -> int:
@@ -251,7 +248,7 @@ def analyze_meal(
         user_weight_kg, goal_weight_kg
     )
 
-    return {
+    res = {
         "food_items":          food_items,
         "top_food":            top_food.replace("_", " ").title(),
         "estimated_calories":  total_calories,
@@ -271,3 +268,13 @@ def analyze_meal(
             "Add more vegetables to increase nutrient density",
         ],
     }
+
+    # Memory Cleanup
+    del model
+    del processor
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    import gc
+    gc.collect()
+
+    return res

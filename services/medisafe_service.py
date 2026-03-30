@@ -7,13 +7,11 @@ import re
 import pickle
 import torch
 from PIL import Image, ImageEnhance
-from transformers import DonutProcessor, VisionEncoderDecoderModel
+import gc
+from PIL import Image, ImageEnhance
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ── Singletons ────────────────────────────────────────────────
-_processor = None
-_model     = None
 
 # ── Drug database ─────────────────────────────────────────────
 DRUG_DB = {
@@ -171,18 +169,21 @@ DURATION_PATTERN = re.compile(
 
 def load_ocr_model():
     """Load chinmays18/medical-prescription-ocr from Hugging Face."""
-    global _processor, _model
-    if _model is None:
-        print("Loading prescription OCR model from Hugging Face...")
-        _processor = DonutProcessor.from_pretrained(
-            "chinmays18/medical-prescription-ocr"
-        )
-        _model = VisionEncoderDecoderModel.from_pretrained(
-            "chinmays18/medical-prescription-ocr"
-        ).to(DEVICE)
-        _model.eval()
-        print("Prescription OCR model loaded!")
-    return _processor, _model
+    from transformers import DonutProcessor, VisionEncoderDecoderModel
+    print("Loading prescription OCR model from Hugging Face...")
+    processor = DonutProcessor.from_pretrained(
+        "chinmays18/medical-prescription-ocr"
+    )
+    # Use torch.float16 and low_cpu_mem_usage to prevent RAM spikes on loading
+    # and slash memory footprint in half.
+    model = VisionEncoderDecoderModel.from_pretrained(
+        "chinmays18/medical-prescription-ocr",
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=True
+    ).to(DEVICE)
+    model.eval()
+    print("Prescription OCR model loaded!")
+    return processor, model
 
 
 def enhance_image(img: Image.Image) -> Image.Image:
@@ -244,6 +245,14 @@ def run_ocr(image_bytes: bytes) -> str:
     )
     # Remove task prompt token
     sequence = re.sub(r"<.*?>", "", sequence).strip()
+    
+    # Aggressively clear model from RAM to prevent OOMs when other endpoints are called
+    del model
+    del processor
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    gc.collect()
+    
     return sequence
 
 
