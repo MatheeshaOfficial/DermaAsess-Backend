@@ -1,17 +1,26 @@
 # services/medisafe_service.py
-# Uses chinmays18/medical-prescription-ocr from Hugging Face
-# No training needed, no large files to store
+# Uses Hugging Face Inference API — no model loaded in Railway RAM
+# microsoft/trocr-base-printed runs on HF servers
 
 import io
+import os
 import re
-import pickle
-import torch
-from PIL import Image, ImageEnhance
-import gc
+import base64
+import httpx
 from PIL import Image, ImageEnhance
 
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+HF_TOKEN   = os.environ.get("HUGGINGFACE_API_TOKEN", "")
+HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
+# OCR model endpoint on Hugging Face
+OCR_API_URL = (
+    "https://api-inference.huggingface.co/models/"
+    "microsoft/trocr-base-printed"
+)
+OCR_HW_URL = (
+    "https://api-inference.huggingface.co/models/"
+    "microsoft/trocr-base-handwritten"
+)
 
 # ── Drug database ─────────────────────────────────────────────
 DRUG_DB = {
@@ -58,7 +67,7 @@ DRUG_DB = {
             "Rare at normal doses",
             "Liver damage with overdose",
         ],
-        "warnings":    ["Do not exceed 4g per day", "Avoid alcohol"],
+        "warnings":     ["Do not exceed 4g per day", "Avoid alcohol"],
         "interactions": ["Warfarin", "Alcohol"],
         "allergy_flag": None,
     },
@@ -90,15 +99,15 @@ DRUG_DB = {
         "class":        "Calcium Channel Blocker",
         "side_effects": ["Ankle swelling", "Flushing", "Headache"],
         "warnings":     ["Do not stop suddenly", "Avoid grapefruit juice"],
-        "interactions":  ["Simvastatin", "Cyclosporine"],
-        "allergy_flag":  None,
+        "interactions": ["Simvastatin", "Cyclosporine"],
+        "allergy_flag": None,
     },
     "aspirin": {
         "class":        "NSAID Antiplatelet",
         "side_effects": ["Stomach bleeding", "Increased bleeding risk"],
         "warnings":     ["Never give to children under 16", "Take with food"],
-        "interactions":  ["Warfarin", "Ibuprofen"],
-        "allergy_flag":  "aspirin",
+        "interactions": ["Warfarin", "Ibuprofen"],
+        "allergy_flag": "aspirin",
     },
     "warfarin": {
         "class":        "Anticoagulant Blood thinner",
@@ -128,27 +137,48 @@ DRUG_DB = {
         "interactions": ["Beta-blockers"],
         "allergy_flag": None,
     },
+    "metronidazole": {
+        "class":        "Antibiotic Antiprotozoal",
+        "side_effects": ["Nausea", "Metallic taste", "Dizziness"],
+        "warnings":     ["Avoid alcohol completely", "Take with food"],
+        "interactions": ["Alcohol", "Warfarin", "Lithium"],
+        "allergy_flag": None,
+    },
+    "cetirizine": {
+        "class":        "Antihistamine",
+        "side_effects": ["Drowsiness", "Dry mouth", "Headache"],
+        "warnings":     ["May cause drowsiness — avoid driving"],
+        "interactions": ["Alcohol", "Sedatives"],
+        "allergy_flag": None,
+    },
+    "prednisolone": {
+        "class":        "Corticosteroid",
+        "side_effects": [
+            "Weight gain", "Mood changes",
+            "Increased blood sugar", "Weakened immune system",
+        ],
+        "warnings": [
+            "Do not stop suddenly — taper dose",
+            "Take with food",
+            "Avoid contact with infections",
+        ],
+        "interactions":  ["NSAIDs", "Warfarin", "Diabetes medicines"],
+        "allergy_flag":  None,
+    },
 }
 
 ALIASES = {
-    "tylenol":        "paracetamol",
-    "panadol":        "paracetamol",
-    "acetaminophen":  "paracetamol",
-    "advil":          "ibuprofen",
-    "nurofen":        "ibuprofen",
-    "augmentin":      "amoxicillin",
-    "zithromax":      "azithromycin",
-    "azithral":       "azithromycin",
-    "cifran":         "ciprofloxacin",
-    "ciplox":         "ciprofloxacin",
-    "lipitor":        "atorvastatin",
-    "glucophage":     "metformin",
-    "prilosec":       "omeprazole",
-    "losec":          "omeprazole",
-    "norvasc":        "amlodipine",
-    "ventolin":       "salbutamol",
-    "brufen":         "ibuprofen",
-    "calpol":         "paracetamol",
+    "tylenol": "paracetamol", "panadol": "paracetamol",
+    "acetaminophen": "paracetamol", "calpol": "paracetamol",
+    "advil": "ibuprofen", "nurofen": "ibuprofen", "brufen": "ibuprofen",
+    "augmentin": "amoxicillin", "amoxil": "amoxicillin",
+    "zithromax": "azithromycin", "azithral": "azithromycin",
+    "cifran": "ciprofloxacin", "ciplox": "ciprofloxacin",
+    "lipitor": "atorvastatin", "glucophage": "metformin",
+    "prilosec": "omeprazole", "losec": "omeprazole",
+    "norvasc": "amlodipine", "ventolin": "salbutamol",
+    "flagyl": "metronidazole", "zyrtec": "cetirizine",
+    "prednisone": "prednisolone",
 }
 
 DOSAGE_PATTERN = re.compile(
@@ -167,97 +197,71 @@ DURATION_PATTERN = re.compile(
 )
 
 
-def load_ocr_model():
-    """Load chinmays18/medical-prescription-ocr from Hugging Face."""
-    from transformers import DonutProcessor, VisionEncoderDecoderModel
-    print("Loading prescription OCR model from Hugging Face...")
-    processor = DonutProcessor.from_pretrained(
-        "chinmays18/medical-prescription-ocr"
-    )
-    # Use torch.float16 and low_cpu_mem_usage to prevent RAM spikes on loading
-    # and slash memory footprint in half.
-    model = VisionEncoderDecoderModel.from_pretrained(
-        "chinmays18/medical-prescription-ocr",
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True
-    ).to(DEVICE)
-    model.eval()
-    print("Prescription OCR model loaded!")
-    return processor, model
-
-
 def enhance_image(img: Image.Image) -> Image.Image:
-    """Enhance prescription image for better OCR."""
     w, h = img.size
     if w < 800:
         scale = 800 / w
         img   = img.resize(
-            (int(w * scale), int(h * scale)),
-            Image.LANCZOS
+            (int(w * scale), int(h * scale)), Image.LANCZOS
         )
     img = ImageEnhance.Contrast(img).enhance(1.8)
     img = ImageEnhance.Sharpness(img).enhance(2.0)
     return img
 
 
-def run_ocr(image_bytes: bytes) -> str:
+async def run_ocr_api(image_bytes: bytes) -> str:
     """
-    Run Donut-based OCR on prescription image.
-    Returns extracted text string.
+    Send image to Hugging Face Inference API for OCR.
+    Tries printed model first, then handwritten.
+    No model loaded in Railway RAM.
     """
-    processor, model = load_ocr_model()
-
+    # Enhance image first
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     img = enhance_image(img)
 
-    pixel_values = processor(
-        images=img, return_tensors="pt"
-    ).pixel_values.to(DEVICE)
+    # Convert back to bytes for API
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=95)
+    enhanced_bytes = buf.getvalue()
 
-    task_prompt      = "<s_ocr>"
-    decoder_input_ids = processor.tokenizer(
-        task_prompt,
-        add_special_tokens=False,
-        return_tensors="pt"
-    ).input_ids.to(DEVICE)
-
-    with torch.no_grad():
-        outputs = model.generate(
-            pixel_values,
-            decoder_input_ids=decoder_input_ids,
-            max_length=model.decoder.config.max_position_embeddings,
-            early_stopping=True,
-            pad_token_id=processor.tokenizer.pad_token_id,
-            eos_token_id=processor.tokenizer.eos_token_id,
-            use_cache=True,
-            num_beams=1,
-            bad_words_ids=[[processor.tokenizer.unk_token_id]],
-            return_dict_in_generate=True,
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        # Try printed model
+        resp_pr = await client.post(
+            OCR_API_URL,
+            headers=HF_HEADERS,
+            content=enhanced_bytes,
         )
 
-    sequence = processor.batch_decode(
-        outputs.sequences
-    )[0]
-    sequence = sequence.replace(
-        processor.tokenizer.eos_token, ""
-    ).replace(
-        processor.tokenizer.pad_token, ""
-    )
-    # Remove task prompt token
-    sequence = re.sub(r"<.*?>", "", sequence).strip()
-    
-    # Aggressively clear model from RAM to prevent OOMs when other endpoints are called
-    del model
-    del processor
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    gc.collect()
-    
-    return sequence
+        # Try handwritten model
+        resp_hw = await client.post(
+            OCR_HW_URL,
+            headers=HF_HEADERS,
+            content=enhanced_bytes,
+        )
+
+    text_pr = ""
+    text_hw = ""
+
+    if resp_pr.status_code == 200:
+        result = resp_pr.json()
+        # TrOCR returns list of dicts with "generated_text"
+        if isinstance(result, list) and result:
+            text_pr = result[0].get("generated_text", "")
+        elif isinstance(result, dict):
+            text_pr = result.get("generated_text", "")
+
+    if resp_hw.status_code == 200:
+        result = resp_hw.json()
+        if isinstance(result, list) and result:
+            text_hw = result[0].get("generated_text", "")
+        elif isinstance(result, dict):
+            text_hw = result.get("generated_text", "")
+
+    # Return whichever has more content
+    return text_pr if len(text_pr) >= len(text_hw) else text_hw
 
 
 def parse_medicines(raw_text: str) -> list:
-    """Extract medicine names, dosages, frequency from OCR text."""
     medicines = []
     seen      = set()
 
@@ -281,8 +285,8 @@ def parse_medicines(raw_text: str) -> list:
 
         name = re.sub(r"[^a-zA-Z0-9\s\-]", "", name).strip()
         name = " ".join(name.split())
+        key  = name.lower()
 
-        key = name.lower()
         if len(name) >= 3 and key not in seen:
             seen.add(key)
             medicines.append({
@@ -297,7 +301,6 @@ def parse_medicines(raw_text: str) -> list:
 
 
 def lookup_medicine(name: str) -> dict | None:
-    """Look up medicine in local database."""
     key = name.lower().strip()
     if key in DRUG_DB:
         return DRUG_DB[key]
@@ -309,26 +312,19 @@ def lookup_medicine(name: str) -> dict | None:
     return None
 
 
-def analyze_prescription(
+async def analyze_prescription(
     image_bytes: bytes,
-    *args,
-    **kwargs
+    user_allergies: list = None,
 ) -> dict:
-    """Full prescription analysis pipeline."""
-    # Handle user_allergies whether passed as arg 2 or kwarg
-    user_allergies = kwargs.get("user_allergies", [])
-    if not user_allergies and args and isinstance(args[0], list):
-        user_allergies = args[0]
-        
+    """Full prescription analysis — no RAM usage on Railway."""
+    user_allergies       = user_allergies or []
     user_allergies_lower = [a.lower() for a in user_allergies]
 
-    # Step 1 — OCR
-    raw_text = run_ocr(image_bytes)
+    # OCR via Hugging Face API
+    raw_text = await run_ocr_api(image_bytes)
 
-    # Step 2 — Parse medicines
-    medicines = parse_medicines(raw_text)
-
-    # Step 3 — Enrich with drug database
+    # Parse medicines
+    medicines          = parse_medicines(raw_text)
     enriched           = []
     allergy_alerts     = []
     cross_interactions = []
@@ -336,7 +332,6 @@ def analyze_prescription(
     for med in medicines:
         info = lookup_medicine(med["name"])
         if info:
-            # Check allergy
             if info.get("allergy_flag"):
                 flag = info["allergy_flag"].lower()
                 if any(flag in a for a in user_allergies_lower):
@@ -361,18 +356,15 @@ def analyze_prescription(
                 "interactions": [],
             })
 
-    # Step 4 — Cross interaction check
+    # Cross-interaction check
     names_lower = [m["name"].lower() for m in medicines]
     for med in enriched:
         for interaction in med.get("interactions", []):
-            interaction_lower = interaction.lower()
-            for other_name in names_lower:
+            inter_lower = interaction.lower()
+            for other in names_lower:
                 if (
-                    other_name != med["name"].lower()
-                    and (
-                        interaction_lower in other_name
-                        or other_name in interaction_lower
-                    )
+                    other != med["name"].lower()
+                    and (inter_lower in other or other in inter_lower)
                 ):
                     pair = f"{med['name']} + {interaction}"
                     if pair not in cross_interactions:
@@ -385,16 +377,16 @@ def analyze_prescription(
     )
 
     return {
-        "raw_text":        raw_text,
-        "medicines":       enriched,
-        "medicines_count": len(enriched),
-        "allergy_alerts":  allergy_alerts,
-        "interactions":    cross_interactions,
-        "side_effects":    [],
+        "raw_text":           raw_text,
+        "medicines":          enriched,
+        "medicines_count":    len(enriched),
+        "allergy_alerts":     allergy_alerts,
+        "interactions":       cross_interactions,
+        "side_effects":       [],
         "condition_warnings": [],
-        "overall_safety":  overall_safety,
+        "overall_safety":     overall_safety,
         "safety_advice": (
-            "Allergy conflict detected — do not take without doctor approval"
+            "Allergy conflict — do not take without doctor approval"
             if allergy_alerts else
             "Drug interaction detected — consult your pharmacist"
             if cross_interactions else

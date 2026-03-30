@@ -1,13 +1,19 @@
 # services/weight_service.py
-# Uses nateraw/food from Hugging Face
-# 89% accuracy on Food-101, Apache 2.0 license
-# Zero training needed
+# Uses Hugging Face Inference API for food classification
+# nateraw/food runs on HF servers — zero RAM usage on Railway
 
 import io
-import torch
+import os
+import base64
+import httpx
 from PIL import Image
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+HF_TOKEN   = os.environ.get("HUGGINGFACE_API_TOKEN", "")
+HF_HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+
+FOOD_API_URL = (
+    "https://api-inference.huggingface.co/models/nateraw/food"
+)
 
 # ── Calorie database per 100g ─────────────────────────────────
 FOOD_CALORIES = {
@@ -34,11 +40,11 @@ FOOD_CALORIES = {
     "huevos_rancheros": 183, "hummus": 177, "ice_cream": 207,
     "lasagna": 135, "lobster_bisque": 96,
     "lobster_roll_sandwich": 245, "macaroni_and_cheese": 164,
-    "macarons": 404, "miso_soup": 40, "mussels": 86, "nachos": 306,
-    "omelette": 149, "onion_rings": 411, "oysters": 68,
-    "pad_thai": 160, "paella": 189, "pancakes": 227,
-    "panna_cotta": 128, "peking_duck": 337, "pho": 65,
-    "pizza": 266, "pork_chop": 231, "poutine": 230,
+    "macarons": 404, "miso_soup": 40, "mussels": 86,
+    "nachos": 306, "omelette": 149, "onion_rings": 411,
+    "oysters": 68, "pad_thai": 160, "paella": 189,
+    "pancakes": 227, "panna_cotta": 128, "peking_duck": 337,
+    "pho": 65, "pizza": 266, "pork_chop": 231, "poutine": 230,
     "prime_rib": 291, "pulled_pork_sandwich": 290, "ramen": 436,
     "ravioli": 218, "red_velvet_cake": 369, "risotto": 166,
     "samosa": 262, "sashimi": 127, "scallops": 111,
@@ -50,7 +56,6 @@ FOOD_CALORIES = {
     "waffles": 310,
 }
 
-# Typical serving sizes in grams
 SERVING_SIZES = {
     "soup": 250, "salad": 150, "pizza": 150,
     "burger": 200, "hamburger": 200, "sandwich": 180,
@@ -58,7 +63,6 @@ SERVING_SIZES = {
     "ramen": 400, "pho": 400, "default": 200,
 }
 
-# Macro estimates per 100g by food type
 MACROS = {
     "high_protein": {"protein": 25, "carbs":  5, "fat": 10},
     "high_carb":    {"protein":  5, "carbs": 50, "fat":  3},
@@ -72,10 +76,11 @@ FOOD_TYPE_MAP = {
     "chicken": "high_protein", "egg": "high_protein",
     "sushi": "high_protein", "sashimi": "high_protein",
     "tuna": "high_protein", "scallops": "high_protein",
+    "mussels": "high_protein", "crab": "high_protein",
     "rice": "high_carb", "pasta": "high_carb",
-    "pizza": "high_carb", "bread": "high_carb",
-    "pancakes": "high_carb", "waffles": "high_carb",
-    "ramen": "high_carb", "pho": "high_carb",
+    "pizza": "high_carb", "pancakes": "high_carb",
+    "waffles": "high_carb", "ramen": "high_carb",
+    "pho": "high_carb", "bread": "high_carb",
     "salad": "vegetable", "seaweed": "vegetable",
     "edamame": "vegetable", "beet": "vegetable",
     "donuts": "high_fat", "fries": "high_fat",
@@ -86,35 +91,13 @@ FOOD_TYPE_MAP = {
 HEALTH_SCORES = {
     "seaweed_salad": 10, "edamame": 9, "sashimi": 9,
     "greek_salad": 9, "caprese_salad": 8, "beet_salad": 9,
-    "grilled_salmon": 8, "ceviche": 8, "miso_soup": 7,
+    "grilled_salmon": 8, "ceviche": 8, "miso_soup": 8,
     "hummus": 7, "omelette": 7, "steak": 6,
-    "spaghetti_bolognese": 5, "pizza": 5, "hamburger": 5,
-    "hamburger": 4, "french_fries": 3, "donuts": 2,
-    "hot_dog": 3, "nachos": 3, "poutine": 3,
-    "ice_cream": 4, "cup_cakes": 3, "chocolate_cake": 3,
+    "spaghetti_bolognese": 5, "pizza": 5, "hamburger": 4,
+    "french_fries": 3, "donuts": 2, "hot_dog": 3,
+    "nachos": 3, "poutine": 3, "ice_cream": 4,
+    "cup_cakes": 3, "chocolate_cake": 3,
 }
-
-
-def load_food_model():
-    """Load nateraw/food from Hugging Face."""
-    from transformers import (
-        AutoModelForImageClassification,
-        AutoImageProcessor
-    )
-    print("Loading food classifier from Hugging Face...")
-    processor = AutoImageProcessor.from_pretrained("nateraw/food")
-    # Low memory usage and half-precision floats to fit tight limits
-    model = AutoModelForImageClassification.from_pretrained(
-        "nateraw/food",
-        torch_dtype=torch.float16,
-        low_cpu_mem_usage=True
-    ).to(DEVICE)
-    model.eval()
-    
-    # Get label list from model config
-    labels = model.config.id2label
-    print(f"Food model loaded! Classes: {len(labels)}")
-    return model, processor, labels
 
 
 def get_serving_size(food_name: str) -> int:
@@ -135,38 +118,31 @@ def generate_advice(
     food_name: str,
     calories: int,
     user_weight: float = None,
-    goal_weight: float = None
+    goal_weight: float = None,
 ) -> str:
     parts = []
-
     if calories > 600:
         parts.append(
-            f"This is a high-calorie meal (~{calories} kcal). "
+            f"High-calorie meal (~{calories} kcal). "
             "Consider a lighter dinner to balance your day."
         )
     elif calories < 200:
         parts.append(
             f"Light meal (~{calories} kcal). "
-            "Make sure you are eating enough throughout the day."
+            "Make sure you eat enough throughout the day."
         )
     else:
-        parts.append(f"Moderate meal (~{calories} kcal).")
+        parts.append(f"Moderate meal (~{calories} kcal). Good choice!")
 
     macro_type = get_macro_type(food_name)
     if macro_type == "high_protein":
-        parts.append(
-            "Good protein content — supports muscle and keeps you full."
-        )
+        parts.append("Good protein — supports muscle and keeps you full.")
     elif macro_type == "high_carb":
-        parts.append(
-            "High in carbs — best consumed earlier in the day for energy."
-        )
+        parts.append("High in carbs — best earlier in the day for energy.")
     elif macro_type == "high_fat":
         parts.append("Higher in fat — enjoy in moderation.")
     elif macro_type == "vegetable":
-        parts.append(
-            "Excellent choice — high in fiber and nutrients."
-        )
+        parts.append("Excellent — high in fiber and nutrients.")
 
     if user_weight and goal_weight:
         diff = user_weight - goal_weight
@@ -176,52 +152,58 @@ def generate_advice(
                 "Aim for a 300-500 kcal daily deficit."
             )
         elif diff < -2:
-            parts.append(
-                "You are below your goal weight. "
-                "Focus on nutrient-dense foods."
-            )
+            parts.append("You are below goal. Focus on nutrient-dense foods.")
         else:
-            parts.append(
-                "You are close to your goal weight. Keep it up!"
-            )
+            parts.append("Close to your goal weight — keep it up!")
 
     return " ".join(parts)
 
 
-def analyze_meal(
+async def analyze_meal(
     image_bytes: bytes,
-    *args,
-    **kwargs
+    user_weight_kg: float = None,
+    goal_weight_kg: float = None,
 ) -> dict:
-    """Classify food and return calories + macros + advice."""
-    model, processor, labels = load_food_model()
+    """
+    Classify food using HF Inference API.
+    Zero RAM usage on Railway.
+    """
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            FOOD_API_URL,
+            headers=HF_HEADERS,
+            content=image_bytes,
+        )
 
-    # Backwards compatibility handler since signature was modified to ignore mime_type
-    user_weight_kg = kwargs.get("user_weight_kg")
-    goal_weight_kg = kwargs.get("goal_weight_kg")
-    if args:
-        # if router sends mime_type as first positional arg
-        if len(args) > 0 and isinstance(args[0], (int, float)):
-            user_weight_kg = args[0]
-        if len(args) > 1 and isinstance(args[1], (int, float)):
-            goal_weight_kg = args[1]
+    if resp.status_code == 503:
+        # Model is loading on HF side — retry once after delay
+        import asyncio
+        await asyncio.sleep(10)
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                FOOD_API_URL,
+                headers=HF_HEADERS,
+                content=image_bytes,
+            )
 
-    img    = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    inputs = processor(images=img, return_tensors="pt").to(DEVICE)
+    if resp.status_code != 200:
+        raise Exception(
+            f"Food classification API error: "
+            f"{resp.status_code} {resp.text}"
+        )
 
-    with torch.no_grad():
-        outputs = model(**inputs)
-        probs   = torch.softmax(outputs.logits, dim=1)[0]
+    # Response format: [{label, score}, {label, score}, ...]
+    results = resp.json()
+    if not results:
+        raise Exception("Empty response from food classifier")
 
-    top3_idx   = probs.topk(3).indices.tolist()
-    top3_probs = probs.topk(3).values.tolist()
-
-    top_food   = labels[top3_idx[0]]           # e.g. "french_fries"
-    confidence = top3_probs[0]
+    top3       = results[:3]
+    top_food   = top3[0]["label"]        # e.g. "french_fries"
+    confidence = top3[0]["score"]
 
     # Calories
-    cal_per_100g  = FOOD_CALORIES.get(top_food, 200)
-    serving_g     = get_serving_size(top_food)
+    cal_per_100g   = FOOD_CALORIES.get(top_food, 200)
+    serving_g      = get_serving_size(top_food)
     total_calories = int(cal_per_100g * serving_g / 100)
 
     # Macros
@@ -233,30 +215,20 @@ def analyze_meal(
         "fat_g":     round(macro_per_100["fat"]      * serving_g / 100, 1),
     }
 
-    # Food items display names
     food_items = [
-        labels[i].replace("_", " ").title()
-        for i in top3_idx
+        r["label"].replace("_", " ").title() for r in top3
     ]
 
-    # Health score
     health_score = HEALTH_SCORES.get(top_food, 5)
-
-    # Advice
-    advice = generate_advice(
-        top_food, total_calories,
-        user_weight_kg, goal_weight_kg
+    advice       = generate_advice(
+        top_food, total_calories, user_weight_kg, goal_weight_kg
     )
 
-    res = {
+    return {
         "food_items":          food_items,
         "top_food":            top_food.replace("_", " ").title(),
         "estimated_calories":  total_calories,
-        "calories_estimate":   total_calories, # legacy compatibility
         "macros":              macros,
-        "protein_g":           macros["protein_g"], # legacy compatibility
-        "carbs_g":             macros["carbs_g"], # legacy compatibility
-        "fat_g":               macros["fat_g"], # legacy compatibility
         "health_score":        health_score,
         "confidence":          round(confidence * 100, 1),
         "advice":              advice,
@@ -268,13 +240,3 @@ def analyze_meal(
             "Add more vegetables to increase nutrient density",
         ],
     }
-
-    # Memory Cleanup
-    del model
-    del processor
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    import gc
-    gc.collect()
-
-    return res

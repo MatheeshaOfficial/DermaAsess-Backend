@@ -26,7 +26,7 @@ async def log_weight(
         if meal_image:
             img_bytes = await meal_image.read()
             mime_type = meal_image.content_type
-            meal_analysis = analyze_meal(img_bytes, user_weight_kg=weight_kg)
+            meal_analysis = await analyze_meal(img_bytes, user_weight_kg=weight_kg)
             record["meal_description"] = ", ".join(meal_analysis.get("food_items", []))
             record["calories_estimate"] = meal_analysis.get("calories_estimate", 0)
             record["protein_g"] = meal_analysis.get("protein_g", 0)

@@ -29,7 +29,7 @@ async def scan_prescription(
             except:
                 user_allergies = [user_allergies]
 
-        safety_result = analyze_prescription(img_bytes, user_allergies=user_allergies)
+        safety_result = await analyze_prescription(img_bytes, user_allergies=user_allergies)
         medicines = safety_result.get("medicines", [])
         
         image_url = upload_image(img_bytes, folder=f"dermaassess/users/{user_id}/prescriptions")
