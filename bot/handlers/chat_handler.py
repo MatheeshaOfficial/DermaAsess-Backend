@@ -52,7 +52,7 @@ async def text_handler(client, message):
                     supabase_client.table("bot_users").update({"current_state": "awaiting_allergies"}).eq("telegram_id", telegram_id).execute()
                     profile_id = bot_user.get("profile_id")
                     if profile_id: supabase_client.table("profiles").update({"weight": weight}).eq("id", profile_id).execute()
-                    await message.reply_text("Any known allergies?\n(e.g. Penicillin, Aspirin, Latex)\nType them separated by commas, or type *none*", parse_mode=ParseMode.MARKDOWN)
+                    await message.reply_text("Any known allergies?\n(e.g. Penicillin, Aspirin, Latex)\nType them separated by commas, or type <b>none</b>", parse_mode=ParseMode.HTML)
                 else:
                     await message.reply_text("Please send weight in kg (e.g. 65.5)")
             except ValueError:
@@ -63,7 +63,7 @@ async def text_handler(client, message):
             supabase_client.table("bot_users").update({"current_state": "awaiting_conditions"}).eq("telegram_id", telegram_id).execute()
             profile_id = bot_user.get("profile_id")
             if profile_id: supabase_client.table("profiles").update({"allergies": allergies}).eq("id", profile_id).execute()
-            await message.reply_text("Any chronic conditions?\n(e.g. Diabetes, Hypertension, Asthma)\nType them separated by commas, or type *none*", parse_mode=ParseMode.MARKDOWN)
+            await message.reply_text("Any chronic conditions?\n(e.g. Diabetes, Hypertension, Asthma)\nType them separated by commas, or type <b>none</b>", parse_mode=ParseMode.HTML)
             
         elif state == "awaiting_conditions":
             conditions = [] if text.lower() == "none" else [c.strip() for c in text.split(",")]
@@ -80,22 +80,35 @@ async def text_handler(client, message):
             cond_str = ", ".join(profile.get("conditions", [])) or 'None'
             
             await message.reply_text(
-                f"✅ *Profile complete!*\n\nAge: {profile.get('age', 'N/A')} | Height: {profile.get('height', 'N/A')}cm | Weight: {profile.get('weight', 'N/A')}kg\n"
+                f"✅ <b>Profile complete!</b>\n\nAge: {profile.get('age', 'N/A')} | Height: {profile.get('height', 'N/A')}cm | Weight: {profile.get('weight', 'N/A')}kg\n"
                 f"Allergies: {al_str}\nConditions: {cond_str}\n\n"
                 "You're all set! You can now:\n📸 Send me a photo of a skin concern\n/medi — scan a prescription\n/weight — log your weight\n\n"
-                "🌐 *Web app login:* Visit dermaassess.vercel.app\nand click 'Login with Telegram' — your account is ready!", parse_mode=ParseMode.MARKDOWN)
+                "🌐 <b>Web app login:</b> Visit dermaassess.vercel.app\nand click 'Login with Telegram' — your account is ready!", parse_mode=ParseMode.HTML)
             
         elif state == "awaiting_weight_input":
             try:
                 weight = float(text)
-                sess_data = bot_user.get("session_data", {})
-                sess_data["pending_weight"] = weight
-                supabase_client.table("bot_users").update({"current_state": "awaiting_meal_choice", "session_data": sess_data}).eq("telegram_id", telegram_id).execute()
-                from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-                kb = InlineKeyboardMarkup([[InlineKeyboardButton("📸 Add meal photo", callback_data="weight_add_meal")], [InlineKeyboardButton("⏭ Skip", callback_data="weight_skip_meal")]])
-                await message.reply_text(f"Got it! {weight}kg noted ✓\n\nWant to add a meal photo for calorie analysis?", reply_markup=kb)
+                
+                # Direct save to DB instead of waiting for meal image
+                supabase_client.table("bot_users").update({"current_state": "idle"}).eq("telegram_id", telegram_id).execute()
+                
+                profile_id = bot_user.get("profile_id")
+                trend_text = "→ stable"
+                if profile_id:
+                    prev_logs = supabase_client.table("weight_logs").select("weight_kg").eq("user_id", profile_id).order("created_at", desc=True).limit(1).execute()
+                    if prev_logs.data:
+                        prev_w = prev_logs.data[0]["weight_kg"]
+                        trend_text = "▼ down" if weight < prev_w else "▲ up" if weight > prev_w else "→ stable"
+                    
+                    supabase_client.table("weight_logs").insert({"user_id": profile_id, "weight_kg": weight}).execute()
+                    supabase_client.table("profiles").update({"weight": weight}).eq("id", profile_id).execute()
+                    
+                await message.reply_text(
+                    f"✅ <b>Weight logged: {weight}kg</b>\n\nTrend: {trend_text} from last entry\n\n💪 Keep it consistent — you're doing great!", 
+                    parse_mode=ParseMode.HTML
+                )
             except ValueError:
-                await message.reply_text("Please send weight in kg (e.g. 68.5)")
+                await message.reply_text("Please send your weight as a number in kg (e.g. 68.5)", parse_mode=ParseMode.HTML)
                 
         elif state == "idle":
             if not bot_user.get("onboarded"):

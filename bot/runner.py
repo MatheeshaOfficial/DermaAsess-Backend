@@ -22,6 +22,8 @@ async def _start_bot_loop():
             break
 
 async def start_bot():
+    from bot.scheduler import start_scheduler
+    start_scheduler()
     # Run the connection flow entirely in the background so it never blocks or crashes FastAPI startup
     asyncio.create_task(_start_bot_loop())
 

@@ -141,3 +141,30 @@ async def chat_with_dermabot(message: str, image_bytes: Optional[bytes], mime_ty
         return response.text
     except Exception as e:
         return f"Sorry, I encountered an error: {str(e)}"
+
+async def generate_fat_loss_advice(history: list, profile: dict) -> dict:
+    prompt = f"""
+    You are an expert fitness and nutrition AI coach.
+    Based on the following user profile and weight log history, provide actionable, safe fat-loss advice.
+    
+    User Profile: Age {profile.get('age', 'Unknown')}, Height {profile.get('height', 'Unknown')}cm, Allergies: {profile.get('allergies', 'None')}, Conditions: {profile.get('conditions', 'None')}.
+    Recent Weight History: {json.dumps(history[-14:])}
+    
+    Respond STRICTLY in JSON format with EXACTLY these fields:
+    {{
+        "trend_summary": string (a short 1-sentence summary of their timeline),
+        "advice_points": [string, string, string] (3 practical, highly tailored bullet points),
+        "encouragement": string (a short motivational closing)
+    }}
+    """
+    try:
+        response = model.generate_content([prompt])
+        data = clean_json_response(response.text)
+        return json.loads(data)
+    except Exception as e:
+        print(f"Gemini API Error in generate_fat_loss_advice: {e}")
+        return {
+            "trend_summary": "Unable to analyze weight trend.",
+            "advice_points": ["Keep tracking your weight consistently.", "Maintain a balanced diet.", "Stay hydrated."],
+            "encouragement": "Every step counts. Keep it up!"
+        }
