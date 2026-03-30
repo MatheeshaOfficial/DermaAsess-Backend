@@ -199,11 +199,8 @@ DURATION_PATTERN = re.compile(
 
 def enhance_image(img: Image.Image) -> Image.Image:
     w, h = img.size
-    if w < 800:
-        scale = 800 / w
-        img   = img.resize(
-            (int(w * scale), int(h * scale)), Image.LANCZOS
-        )
+    if max(w, h) > 800:
+        img.thumbnail((800, 800), Image.LANCZOS)
     img = ImageEnhance.Contrast(img).enhance(1.8)
     img = ImageEnhance.Sharpness(img).enhance(2.0)
     return img
